@@ -1,1 +1,274 @@
-PLACEHOLDER
+package com.suyziss.feed.data
+
+import android.content.Context
+import android.net.Uri
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+
+enum class AppTheme { System, Light, Dark }
+
+enum class Tab { Home, Friends, Create, Inbox, Profile }
+
+enum class ProfileSection { Posts, Private, Reposts, Saved, Liked }
+
+enum class InboxSection { Notifications, Messages }
+
+enum class Overlay { None, Settings, EditProfile, Followers, Following, Likes }
+
+data class Profile(
+    val name: String,
+    val username: String,
+    val bio: String,
+    val avatarFile: String,
+    val privateAccount: Boolean,
+)
+
+data class LocalPost(
+    val id: String,
+    val fileName: String,
+    val video: Boolean,
+    val caption: String,
+    val createdAt: Long,
+    val privatePost: Boolean,
+    val liked: Boolean,
+    val bookmarked: Boolean,
+)
+
+class FeedStore(context: Context) {
+    private val app = context.applicationContext
+    private val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val postsDir = File(app.filesDir, "posts").apply { mkdirs() }
+    private val draftDir = File(app.filesDir, "draft").apply { mkdirs() }
+    private val avatarFile = File(app.filesDir, "avatar.jpg")
+
+    var profile by mutableStateOf(readProfile())
+        private set
+    var posts by mutableStateOf(readPosts())
+        private set
+    var theme by mutableStateOf(readTheme())
+        private set
+
+    val likesCount: Int get() = posts.count { it.liked }
+
+    init {
+        if (!prefs.contains(KEY_NAME)) persistProfile()
+    }
+
+    fun chooseTheme(value: AppTheme) {
+        theme = value
+        prefs.edit().putString(KEY_THEME, value.name).apply()
+    }
+
+    fun setPrivateAccount(value: Boolean) {
+        profile = profile.copy(privateAccount = value)
+        persistProfile()
+    }
+
+    suspend fun updateProfile(
+        name: String,
+        username: String,
+        bio: String,
+        newAvatar: Uri?,
+        removeAvatar: Boolean,
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            var storedAvatar = profile.avatarFile
+            if (newAvatar != null) {
+                app.contentResolver.openInputStream(newAvatar)?.use { input ->
+                    avatarFile.outputStream().use { input.copyTo(it) }
+                } ?: return@withContext false
+                if (avatarFile.length() == 0L) {
+                    avatarFile.delete()
+                    return@withContext false
+                }
+                storedAvatar = avatarFile.absolutePath
+            } else if (removeAvatar) {
+                avatarFile.delete()
+                if (storedAvatar.isNotBlank()) File(storedAvatar).delete()
+                storedAvatar = ""
+            }
+            val updated = profile.copy(
+                name = name.trim().take(30),
+                username = username.trim().take(24),
+                bio = bio.trim().take(BIO_LIMIT),
+                avatarFile = storedAvatar,
+            )
+            withContext(Dispatchers.Main) {
+                profile = updated
+                persistProfile()
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    suspend fun stageDraft(uri: Uri, video: Boolean): String? = withContext(Dispatchers.IO) {
+        try {
+            draftDir.listFiles()?.forEach { it.delete() }
+            val dest = File(draftDir, if (video) "draft.mp4" else "draft.jpg")
+            app.contentResolver.openInputStream(uri)?.use { input ->
+                dest.outputStream().use { input.copyTo(it) }
+            } ?: return@withContext null
+            if (dest.length() == 0L) {
+                dest.delete()
+                null
+            } else {
+                dest.absolutePath
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun discardDraft(path: String?) {
+        if (path.isNullOrBlank()) return
+        File(path).delete()
+    }
+
+    suspend fun publishFile(
+        path: String,
+        video: Boolean,
+        caption: String,
+        privatePost: Boolean,
+    ): LocalPost? = withContext(Dispatchers.IO) {
+        try {
+            val src = File(path)
+            if (!src.exists() || src.length() == 0L) return@withContext null
+            val id = System.currentTimeMillis().toString()
+            val ext = if (video) "mp4" else "jpg"
+            val dest = File(postsDir, "$id.$ext")
+            if (!src.renameTo(dest)) {
+                src.copyTo(dest, overwrite = true)
+                src.delete()
+            }
+            val post = LocalPost(
+                id = id,
+                fileName = dest.name,
+                video = video,
+                caption = caption.trim().take(120),
+                createdAt = System.currentTimeMillis(),
+                privatePost = privatePost,
+                liked = false,
+                bookmarked = false,
+            )
+            withContext(Dispatchers.Main) {
+                posts = listOf(post) + posts
+                persistPosts()
+            }
+            post
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun fileOf(post: LocalPost): File = File(postsDir, post.fileName)
+
+    fun toggleLike(id: String) = updatePost(id) { it.copy(liked = !it.liked) }
+
+    fun toggleBookmark(id: String) = updatePost(id) { it.copy(bookmarked = !it.bookmarked) }
+
+    fun delete(id: String) {
+        val post = posts.find { it.id == id } ?: return
+        fileOf(post).delete()
+        posts = posts.filterNot { it.id == id }
+        persistPosts()
+    }
+
+    private fun updatePost(id: String, block: (LocalPost) -> LocalPost) {
+        posts = posts.map { if (it.id == id) block(it) else it }
+        persistPosts()
+    }
+
+    private fun readTheme(): AppTheme {
+        val raw = prefs.getString(KEY_THEME, AppTheme.System.name)
+        return runCatching { AppTheme.valueOf(raw ?: AppTheme.System.name) }.getOrDefault(AppTheme.System)
+    }
+
+    private fun readProfile(): Profile {
+        val legacy = app.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+        return Profile(
+            name = prefs.getString(KEY_NAME, null) ?: legacy.getString("name", "SUYZISS") ?: "SUYZISS",
+            username = prefs.getString(KEY_USER, null) ?: legacy.getString("username", "suyziss") ?: "suyziss",
+            bio = prefs.getString(KEY_BIO, null) ?: legacy.getString("bio", "") ?: "",
+            avatarFile = prefs.getString(KEY_AVATAR, "") ?: "",
+            privateAccount = prefs.getBoolean(KEY_PRIVATE, false),
+        )
+    }
+
+    private fun persistProfile() {
+        prefs.edit()
+            .putString(KEY_NAME, profile.name)
+            .putString(KEY_USER, profile.username)
+            .putString(KEY_BIO, profile.bio)
+            .putString(KEY_AVATAR, profile.avatarFile)
+            .putBoolean(KEY_PRIVATE, profile.privateAccount)
+            .apply()
+    }
+
+    private fun readPosts(): List<LocalPost> {
+        val raw = prefs.getString(KEY_POSTS, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.getJSONObject(index)
+                    val post = LocalPost(
+                        id = item.getString("id"),
+                        fileName = item.getString("fileName"),
+                        video = item.getBoolean("video"),
+                        caption = item.optString("caption"),
+                        createdAt = item.getLong("createdAt"),
+                        privatePost = item.optBoolean("privatePost"),
+                        liked = item.optBoolean("liked"),
+                        bookmarked = item.optBoolean("bookmarked"),
+                    )
+                    if (File(postsDir, post.fileName).exists()) add(post)
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun persistPosts() {
+        val array = JSONArray()
+        posts.forEach { post ->
+            array.put(
+                JSONObject()
+                    .put("id", post.id)
+                    .put("fileName", post.fileName)
+                    .put("video", post.video)
+                    .put("caption", post.caption)
+                    .put("createdAt", post.createdAt)
+                    .put("privatePost", post.privatePost)
+                    .put("liked", post.liked)
+                    .put("bookmarked", post.bookmarked),
+            )
+        }
+        prefs.edit().putString(KEY_POSTS, array.toString()).apply()
+    }
+
+    companion object {
+        const val BIO_LIMIT = 50
+        private const val PREFS = "suyziss_feed"
+        private const val LEGACY_PREFS = "suyziss_profile"
+        private const val KEY_NAME = "name"
+        private const val KEY_USER = "username"
+        private const val KEY_BIO = "bio"
+        private const val KEY_AVATAR = "avatar"
+        private const val KEY_PRIVATE = "private"
+        private const val KEY_THEME = "theme"
+        private const val KEY_POSTS = "posts"
+    }
+}
+
+fun normalizeUsername(raw: String): String =
+    raw.lowercase().filter { it.isLetterOrDigit() || it == '_' || it == '.' }.take(24)
+
+fun isUsernameValid(value: String): Boolean =
+    value.length in 2..24 && value.any { it.isLetterOrDigit() }
