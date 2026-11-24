@@ -10,15 +10,12 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 
 enum class AppTheme { System, Light, Dark }
-
 enum class Tab { Home, Friends, Create, Inbox, Profile }
-
 enum class ProfileSection { Posts, Private, Reposts, Saved, Liked }
-
 enum class InboxSection { Notifications, Messages }
-
 enum class Overlay { None, Settings, EditProfile, Followers, Following, Likes }
 
 data class Profile(
@@ -53,11 +50,53 @@ class FeedStore(context: Context) {
         private set
     var theme by mutableStateOf(readTheme())
         private set
+    var isLoggedIn by mutableStateOf(prefs.getBoolean(KEY_LOGGED_IN, false))
+        private set
 
     val likesCount: Int get() = posts.count { it.liked }
 
     init {
         if (!prefs.contains(KEY_NAME)) persistProfile()
+    }
+
+    fun register(username: String, password: String, displayName: String): String? {
+        val user = normalizeUsername(username)
+        if (!isUsernameValid(user)) return "Username: 2–24 letters/digits/_."
+        if (password.length < 4) return "Password must be at least 4 characters"
+        val hash = hashPassword(password)
+        prefs.edit()
+            .putString(KEY_AUTH_USER, user)
+            .putString(KEY_AUTH_HASH, hash)
+            .putBoolean(KEY_LOGGED_IN, true)
+            .apply()
+        profile = profile.copy(
+            name = displayName.trim().ifBlank { user }.take(30),
+            username = user,
+        )
+        persistProfile()
+        isLoggedIn = true
+        return null
+    }
+
+    fun login(username: String, password: String): String? {
+        val user = normalizeUsername(username)
+        val storedUser = prefs.getString(KEY_AUTH_USER, null)
+        val storedHash = prefs.getString(KEY_AUTH_HASH, null)
+        if (storedUser == null || storedHash == null) return "No account yet. Please register first."
+        if (user != storedUser || hashPassword(password) != storedHash) return "Wrong username or password"
+        prefs.edit().putBoolean(KEY_LOGGED_IN, true).apply()
+        isLoggedIn = true
+        return null
+    }
+
+    fun logout() {
+        prefs.edit().putBoolean(KEY_LOGGED_IN, false).apply()
+        isLoggedIn = false
+    }
+
+    private fun hashPassword(password: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(password.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
     }
 
     fun chooseTheme(value: AppTheme) {
@@ -119,9 +158,7 @@ class FeedStore(context: Context) {
             if (dest.length() == 0L) {
                 dest.delete()
                 null
-            } else {
-                dest.absolutePath
-            }
+            } else dest.absolutePath
         } catch (_: Exception) {
             null
         }
@@ -169,9 +206,7 @@ class FeedStore(context: Context) {
     }
 
     fun fileOf(post: LocalPost): File = File(postsDir, post.fileName)
-
     fun toggleLike(id: String) = updatePost(id) { it.copy(liked = !it.liked) }
-
     fun toggleBookmark(id: String) = updatePost(id) { it.copy(bookmarked = !it.bookmarked) }
 
     fun delete(id: String) {
@@ -264,6 +299,9 @@ class FeedStore(context: Context) {
         private const val KEY_PRIVATE = "private"
         private const val KEY_THEME = "theme"
         private const val KEY_POSTS = "posts"
+        private const val KEY_AUTH_USER = "auth_user"
+        private const val KEY_AUTH_HASH = "auth_hash"
+        private const val KEY_LOGGED_IN = "logged_in"
     }
 }
 
