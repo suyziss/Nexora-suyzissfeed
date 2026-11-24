@@ -6,13 +6,11 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,9 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -40,7 +36,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,7 +48,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -68,8 +62,9 @@ import com.suyziss.feed.data.Tab
 import kotlinx.coroutines.launch
 
 @Composable
-fun FeedApp(store: FeedStore) {
+fun FeedApp() {
     val context = LocalContext.current
+    val store = remember { FeedStore(context) }
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
@@ -116,33 +111,30 @@ fun FeedApp(store: FeedStore) {
         window.navigationBarColor = Color.Transparent.toArgb()
     }
 
-    BackHandler(enabled = overlay != Overlay.None || selectedPostId != null) {
-        when {
-            selectedPostId != null -> selectedPostId = null
-            overlay != Overlay.None -> overlay = Overlay.None
-        }
-    }
-
     MaterialTheme(colorScheme = colors) {
         Surface(modifier = Modifier.fillMaxSize(), color = colors.background) {
+            if (!store.isLoggedIn) {
+                AuthScreen(store)
+                return@Surface
+            }
+
+            BackHandler(enabled = overlay != Overlay.None || selectedPostId != null) {
+                when {
+                    selectedPostId != null -> selectedPostId = null
+                    overlay != Overlay.None -> overlay = Overlay.None
+                }
+            }
+
             Scaffold(
                 snackbarHost = { SnackbarHost(snackbar) },
                 bottomBar = {
                     if (overlay == Overlay.None && selectedPostId == null) {
-                        FeedBottomBar(
-                            tab = tab,
-                            dark = dark,
-                            onSelect = { tab = it },
-                        )
+                        FeedBottomBar(tab = tab, dark = dark, onSelect = { tab = it })
                     }
                 },
                 containerColor = colors.background,
             ) { padding ->
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                ) {
+                Box(Modifier.fillMaxSize().padding(padding)) {
                     when (tab) {
                         Tab.Home -> HomeScreen(store, onOpenPost = { selectedPostId = it })
                         Tab.Friends -> FriendsScreen()
@@ -219,13 +211,9 @@ fun FeedApp(store: FeedStore) {
 }
 
 @Composable
-private fun FeedBottomBar(
-    tab: Tab,
-    dark: Boolean,
-    onSelect: (Tab) -> Unit,
-) {
+private fun FeedBottomBar(tab: Tab, dark: Boolean, onSelect: (Tab) -> Unit) {
     val bg = if (dark) Color(0xFF000000) else Color(0xFFFFFFFF)
-    val muted = if (dark) Color(0xFF8A8A8A) else Color(0xFF8A8A8A)
+    val muted = Color(0xFF8A8A8A)
     val active = if (dark) Color.White else Color.Black
 
     Row(
@@ -240,18 +228,14 @@ private fun FeedBottomBar(
     ) {
         BottomItem("Home", Icons.Filled.Home, tab == Tab.Home, active, muted) { onSelect(Tab.Home) }
         BottomItem("Friends", Icons.Filled.People, tab == Tab.Friends, active, muted) { onSelect(Tab.Friends) }
-
-        // Monochrome create button with offset shadow for light theme contrast
         Box(
-            Modifier
-                .size(48.dp)
-                .clickable { onSelect(Tab.Create) },
+            Modifier.size(48.dp).clickable { onSelect(Tab.Create) },
             contentAlignment = Alignment.Center,
         ) {
             Box(
                 Modifier
                     .size(36.dp)
-                    .offsetShadow(dark)
+                    .then(if (dark) Modifier else Modifier.shadow(4.dp, RoundedCornerShape(10.dp)))
                     .clip(RoundedCornerShape(10.dp))
                     .background(if (dark) Color.White else Color.Black),
                 contentAlignment = Alignment.Center,
@@ -264,7 +248,6 @@ private fun FeedBottomBar(
                 )
             }
         }
-
         BottomItem("Inbox", Icons.Filled.Notifications, tab == Tab.Inbox, active, muted) { onSelect(Tab.Inbox) }
         BottomItem("Profile", Icons.Filled.Person, tab == Tab.Profile, active, muted) { onSelect(Tab.Profile) }
     }
@@ -280,17 +263,10 @@ private fun BottomItem(
     onClick: () -> Unit,
 ) {
     Column(
-        Modifier
-            .clickable(onClick = onClick)
-            .padding(horizontal = 4.dp),
+        Modifier.clickable(onClick = onClick).padding(horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(
-            icon,
-            contentDescription = label,
-            tint = if (selected) active else muted,
-            modifier = Modifier.size(24.dp),
-        )
+        Icon(icon, contentDescription = label, tint = if (selected) active else muted, modifier = Modifier.size(24.dp))
         Text(
             label,
             color = if (selected) active else muted,
@@ -300,14 +276,10 @@ private fun BottomItem(
     }
 }
 
-private fun Modifier.offsetShadow(dark: Boolean): Modifier =
-    if (dark) this else this.shadow(4.dp, RoundedCornerShape(10.dp), ambientColor = Color.Black.copy(0.25f), spotColor = Color.Black.copy(0.25f))
-
 private fun openTelegram(context: android.content.Context) {
     val uri = Uri.parse("https://t.me/suyziss")
-    val intent = Intent(Intent.ACTION_VIEW, uri)
     try {
-        context.startActivity(intent)
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
     } catch (_: ActivityNotFoundException) {
         context.startActivity(Intent(Intent.ACTION_VIEW, uri))
     }
