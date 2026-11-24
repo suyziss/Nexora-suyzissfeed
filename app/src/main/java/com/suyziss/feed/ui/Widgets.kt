@@ -4,6 +4,7 @@ import android.widget.VideoView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.CameraAlt
@@ -11,14 +12,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
@@ -26,6 +21,24 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/** Simple path-based API used by current screens */
+@Composable
+fun MediaPreview(
+    path: String,
+    isVideo: Boolean,
+    modifier: Modifier = Modifier,
+    play: Boolean = true,
+    description: String = "Media",
+) {
+    MediaPreview(
+        file = path.takeIf { it.isNotBlank() }?.let(::File),
+        video = isVideo,
+        play = play,
+        modifier = modifier,
+        description = description,
+    )
+}
 
 @Composable
 fun MediaPreview(
@@ -73,11 +86,6 @@ fun MediaPreview(
         }
     }
 }
-
-@Composable
-fun Modifier.feedInsets(): Modifier = windowInsetsPadding(
-    WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
-)
 
 fun formatWhen(epochMillis: Long): String {
     val format = SimpleDateFormat("d MMM, HH:mm", Locale("ru"))
