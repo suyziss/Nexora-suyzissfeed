@@ -18,7 +18,7 @@ jobs:
   build:
     name: Build debug APK
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
@@ -36,26 +36,27 @@ jobs:
         with:
           packages: "platforms;android-36 build-tools;36.0.0 platform-tools"
 
-      - name: Grant execute permission for gradlew
+      - name: Ensure Gradle Wrapper JAR
         run: |
-          if [ -f ./gradlew ]; then
-            chmod +x ./gradlew
+          mkdir -p gradle/wrapper
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            echo "Downloading gradle-wrapper.jar..."
+            curl -fsSL -o gradle/wrapper/gradle-wrapper.jar \
+              "https://github.com/gradle/gradle/raw/v8.13.0/gradle/wrapper/gradle-wrapper.jar" \
+              || curl -fsSL -o gradle/wrapper/gradle-wrapper.jar \
+              "https://raw.githubusercontent.com/gradle/gradle/v8.13.0/gradle/wrapper/gradle-wrapper.jar"
           fi
+          test -s gradle/wrapper/gradle-wrapper.jar
+          chmod +x gradlew || true
+          ls -la gradlew gradle/wrapper/
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.13"
-          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Build debug APK + lint
-        run: |
-          if [ -x ./gradlew ] && [ -f gradle/wrapper/gradle-wrapper.jar ]; then
-            ./gradlew --no-daemon --stacktrace :app:assembleDebug :app:lintDebug
-          else
-            echo "Wrapper jar missing — using Gradle from setup action"
-            gradle --no-daemon --stacktrace :app:assembleDebug :app:lintDebug
-          fi
+        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug :app:lintDebug
 
       - name: Verify APK
         run: |
@@ -75,7 +76,7 @@ jobs:
   release:
     name: Build release APK (unsigned)
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     needs: build
 
@@ -95,9 +96,14 @@ jobs:
         with:
           packages: "platforms;android-36 build-tools;36.0.0 platform-tools"
 
-      - name: Grant execute permission for gradlew
+      - name: Ensure Gradle Wrapper JAR
         run: |
-          if [ -f ./gradlew ]; then chmod +x ./gradlew; fi
+          mkdir -p gradle/wrapper
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then
+            curl -fsSL -o gradle/wrapper/gradle-wrapper.jar \
+              "https://github.com/gradle/gradle/raw/v8.13.0/gradle/wrapper/gradle-wrapper.jar" || true
+          fi
+          chmod +x gradlew || true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -105,12 +111,7 @@ jobs:
           gradle-version: "8.13"
 
       - name: Build release APK
-        run: |
-          if [ -x ./gradlew ] && [ -f gradle/wrapper/gradle-wrapper.jar ]; then
-            ./gradlew --no-daemon --stacktrace :app:assembleRelease
-          else
-            gradle --no-daemon --stacktrace :app:assembleRelease
-          fi
+        run: ./gradlew --no-daemon --stacktrace :app:assembleRelease
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
