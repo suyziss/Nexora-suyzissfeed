@@ -132,6 +132,7 @@ fun CreateScreen(
     onError: (String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var caption by remember { mutableStateOf("") }
     var privatePost by remember { mutableStateOf(false) }
     var draftPath by remember { mutableStateOf<String?>(null) }
@@ -144,7 +145,7 @@ fun CreateScreen(
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
             val video = uri.toString().contains("video") ||
-                (LocalContext.current.contentResolver.getType(uri)?.startsWith("video") == true)
+                (context.contentResolver.getType(uri)?.startsWith("video") == true)
             val path = store.stageDraft(uri, video)
             if (path == null) {
                 onError("Failed to load media")
@@ -275,12 +276,15 @@ fun SettingsScreen(
         }
 
         SectionTitle("Account")
-        SettingsRow("Private account") {
-            Switch(
-                checked = store.profile.privateAccount,
-                onCheckedChange = { store.setPrivateAccount(it) },
-            )
-        }
+        SettingsRow(
+            label = "Private account",
+            trailing = {
+                Switch(
+                    checked = store.profile.privateAccount,
+                    onCheckedChange = { store.setPrivateAccount(it) },
+                )
+            },
+        )
 
         SectionTitle("Appearance")
         AppTheme.entries.forEach { theme ->
@@ -327,11 +331,12 @@ private fun SettingsRow(
     trailing: @Composable (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
 ) {
+    val rowModifier = Modifier
+        .fillMaxWidth()
+        .then(if (onClick == null) Modifier else Modifier.clickable { onClick() })
+        .padding(horizontal = 16.dp, vertical = 12.dp)
     Row(
-        Modifier
-            .fillMaxWidth()
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = rowModifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
