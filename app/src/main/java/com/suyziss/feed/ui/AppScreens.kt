@@ -1,5 +1,19 @@
 package com.suyziss.feed.ui
 
+import android.content.Intent
+import androidx.compose.foundation.layout.fillParentMaxSize
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -57,41 +71,203 @@ import androidx.compose.ui.unit.sp
 import com.suyziss.feed.data.AppTheme
 import com.suyziss.feed.data.FeedStore
 import com.suyziss.feed.data.LocalPost
+import com.suyziss.feed.data.LocalComment
 import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(store: FeedStore, onOpenPost: (String) -> Unit) {
     val posts = store.posts.filter { !it.privatePost }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
-    ) {
-        Text(
-            "For You",
-            modifier = Modifier.padding(16.dp),
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-        )
+    val listState = rememberLazyListState()
+    val context = LocalContext.current
+    var commentsFor by remember { mutableStateOf<String?>(null) }
+
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (posts.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "No posts yet.\nCreate one from the + button.",
-                    textAlign = TextAlign.Center,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Column(
+                Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text("For You", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(12.dp))
+                Text("No posts yet.\nCreate a video from the + button.", color = Color.LightGray, textAlign = TextAlign.Center)
             }
         } else {
             LazyColumn(
-                contentPadding = PaddingValues(bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 0.dp),
             ) {
-                items(posts, key = { it.id }) { post ->
-                    PostCard(store, post, onOpen = { onOpenPost(post.id) })
+                itemsIndexed(posts, key = { _, post -> post.id }) { index, post ->
+                    Box(
+                        Modifier.fillParentMaxSize().background(Color.Black),
+                    ) {
+                        MediaPreview(
+                            path = store.fileOf(post).absolutePath,
+                            isVideo = post.video,
+                            play = post.video && index == listState.firstVisibleItemIndex,
+                            modifier = Modifier.fillMaxSize(),
+                            description = "Video by @${store.profile.username}",
+                        )
+
+                        Row(
+                            Modifier.align(Alignment.TopCenter)
+                                .fillMaxWidth()
+                                .windowInsetsPadding(WindowInsets.statusBars)
+                                .padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            Text("For You", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        }
+
+                        Column(
+                            Modifier.align(Alignment.BottomStart)
+                                .fillMaxWidth(0.78f)
+                                .padding(start = 16.dp, end = 8.dp, bottom = 24.dp),
+                            verticalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            Text("@${store.profile.username}", color = Color.White, fontWeight = FontWeight.Bold)
+                            if (post.caption.isNotBlank()) {
+                                Text(post.caption, color = Color.White, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                            }
+                            Text(formatWhen(post.createdAt), color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
+                        }
+
+                        Column(
+                            Modifier.align(Alignment.BottomEnd)
+                                .padding(end = 10.dp, bottom = 22.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(13.dp),
+                        ) {
+                            FeedAction(
+                                icon = if (post.liked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                label = if (post.liked) "1" else "Like",
+                                tint = if (post.liked) Color(0xFFFF365D) else Color.White,
+                                onClick = { store.toggleLike(post.id) },
+                            )
+                            FeedAction(
+                                icon = Icons.Filled.ChatBubbleOutline,
+                                label = store.commentsFor(post.id).size.toString(),
+                                onClick = { commentsFor = post.id },
+                            )
+                            FeedAction(
+                                icon = if (post.reposted) Icons.Filled.Repeat else Icons.Filled.Repeat,
+                                label = if (post.reposted) "Shared" else "Repost",
+                                tint = if (post.reposted) Color(0xFF40D9A0) else Color.White,
+                                onClick = { store.toggleRepost(post.id) },
+                            )
+                            FeedAction(
+                                icon = if (post.bookmarked) Icons.Filled.Bookmark else Icons.Outlined.BookmarkBorder,
+                                label = "Save",
+                                tint = if (post.bookmarked) Color(0xFFFFD45C) else Color.White,
+                                onClick = { store.toggleBookmark(post.id) },
+                            )
+                            FeedAction(
+                                icon = Icons.Filled.Share,
+                                label = "Share",
+                                onClick = {
+                                    val link = "suyzissfeed://video/${post.id}"
+                                    val send = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, "Suyziss Feed video: $link")
+                                    }
+                                    context.startActivity(Intent.createChooser(send, "Share video"))
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
     }
+
+    commentsFor?.let { postId ->
+        CommentsDialog(
+            store = store,
+            postId = postId,
+            onDismiss = { commentsFor = null },
+        )
+    }
+}
+
+@Composable
+private fun FeedAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: Color = Color.White,
+    onClick: () -> Unit,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
+            Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(30.dp))
+        }
+        Text(label, color = Color.White, fontSize = 11.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun CommentsDialog(
+    store: FeedStore,
+    postId: String,
+    onDismiss: () -> Unit,
+) {
+    var draft by remember { mutableStateOf("") }
+    var replyTo by remember { mutableStateOf<String?>(null) }
+    val comments = store.commentsFor(postId)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Comments · ${comments.size}") },
+        text = {
+            Column {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 340.dp)) {
+                    val roots = comments.filter { it.parentId == null }
+                    items(roots, key = { it.id }) { comment ->
+                        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                            Text("@${comment.author}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(comment.text)
+                            TextButton(onClick = { replyTo = comment.id }) { Text("Reply") }
+                            comments.filter { it.parentId == comment.id }.forEach { reply ->
+                                Column(Modifier.padding(start = 18.dp, bottom = 5.dp)) {
+                                    Text("@${reply.author} · reply", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+                                    Text(reply.text)
+                                    TextButton(onClick = { replyTo = reply.id }) { Text("Reply") }
+                                }
+                            }
+                        }
+                    }
+                    if (roots.isEmpty()) {
+                        item { Text("No comments yet. Start the conversation.") }
+                    }
+                }
+                if (replyTo != null) {
+                    Text("Replying to a comment", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+                }
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { if (it.length <= 500) draft = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Add a comment…") },
+                    maxLines = 3,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = draft.isNotBlank(),
+                onClick = {
+                    store.addComment(postId, draft, replyTo)
+                    draft = ""
+                    replyTo = null
+                },
+            ) { Text("Send") }
+        },
+        dismissButton = {
+            Row {
+                if (replyTo != null) TextButton(onClick = { replyTo = null }) { Text("Cancel reply") }
+                TextButton(onClick = onDismiss) { Text("Close") }
+            }
+        },
+    )
 }
 
 @Composable
@@ -260,8 +436,10 @@ fun SettingsScreen(
     Column(
         Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(WindowInsets.statusBars)
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 24.dp),
     ) {
         Row(
             Modifier
