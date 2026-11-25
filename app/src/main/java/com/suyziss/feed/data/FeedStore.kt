@@ -13,6 +13,10 @@ import java.io.File
 import java.security.MessageDigest
 
 enum class AppTheme { System, Light, Dark }
+enum class MessagePrivacy { Friends, Everyone, Nobody }
+
+data class LocalMessage(val username: String, val text: String, val createdAt: Long = System.currentTimeMillis())
+data class SavedNote(val id: String, val text: String, val createdAt: Long = System.currentTimeMillis())
 enum class Tab { Home, Friends, Create, Inbox, Profile }
 enum class ProfileSection { Posts, Private, Reposts, Saved, Liked }
 enum class InboxSection { Notifications, Messages }
@@ -60,6 +64,12 @@ class FeedStore(context: Context) {
     var theme by mutableStateOf(readTheme())
         private set
     var commentsByPost by mutableStateOf(readComments())
+        private set
+    var messagePrivacy by mutableStateOf(readMessagePrivacy())
+        private set
+    var outgoingMessages by mutableStateOf(readOutgoingMessages())
+        private set
+    var savedNotes by mutableStateOf(readSavedNotes())
         private set
     var isLoggedIn by mutableStateOf(prefs.getBoolean(KEY_LOGGED_IN, false))
         private set
@@ -113,6 +123,33 @@ class FeedStore(context: Context) {
     fun chooseTheme(value: AppTheme) {
         theme = value
         prefs.edit().putString(KEY_THEME, value.name).apply()
+    }
+
+    fun setMessagePrivacy(value: MessagePrivacy) {
+        messagePrivacy = value
+        prefs.edit().putString(KEY_MESSAGE_PRIVACY, value.name).apply()
+    }
+
+    fun sendLocalMessage(username: String, text: String): Boolean {
+        val user = normalizeUsername(username.removePrefix("@"))
+        val clean = text.trim().take(2000)
+        if (!isUsernameValid(user) || user == profile.username || clean.isBlank()) return false
+        if (messagePrivacy == MessagePrivacy.Nobody) return false
+        outgoingMessages = listOf(LocalMessage(user, clean)) + outgoingMessages
+        persistOutgoingMessages()
+        return true
+    }
+
+    fun saveNote(text: String) {
+        val clean = text.trim().take(2000)
+        if (clean.isBlank()) return
+        savedNotes = listOf(SavedNote(System.currentTimeMillis().toString(), clean)) + savedNotes
+        persistSavedNotes()
+    }
+
+    fun deleteSavedNote(id: String) {
+        savedNotes = savedNotes.filterNot { it.id == id }
+        persistSavedNotes()
     }
 
     fun setPrivateAccount(value: Boolean) {
@@ -248,6 +285,53 @@ class FeedStore(context: Context) {
         persistPosts()
     }
 
+    private fun readMessagePrivacy(): MessagePrivacy =
+        runCatching {
+            MessagePrivacy.valueOf(prefs.getString(KEY_MESSAGE_PRIVACY, MessagePrivacy.Everyone.name) ?: MessagePrivacy.Everyone.name)
+        }.getOrDefault(MessagePrivacy.Everyone)
+
+    private fun readOutgoingMessages(): List<LocalMessage> {
+        val raw = prefs.getString(KEY_OUTGOING_MESSAGES, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.optJSONObject(i) ?: continue
+                    add(LocalMessage(item.optString("username"), item.optString("text"), item.optLong("createdAt")))
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun persistOutgoingMessages() {
+        val array = JSONArray()
+        outgoingMessages.forEach { item ->
+            array.put(JSONObject().put("username", item.username).put("text", item.text).put("createdAt", item.createdAt))
+        }
+        prefs.edit().putString(KEY_OUTGOING_MESSAGES, array.toString()).apply()
+    }
+
+    private fun readSavedNotes(): List<SavedNote> {
+        val raw = prefs.getString(KEY_SAVED_NOTES, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.optJSONObject(i) ?: continue
+                    add(SavedNote(item.optString("id"), item.optString("text"), item.optLong("createdAt")))
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun persistSavedNotes() {
+        val array = JSONArray()
+        savedNotes.forEach { item ->
+            array.put(JSONObject().put("id", item.id).put("text", item.text).put("createdAt", item.createdAt))
+        }
+        prefs.edit().putString(KEY_SAVED_NOTES, array.toString()).apply()
+    }
+
     private fun readTheme(): AppTheme {
         val raw = prefs.getString(KEY_THEME, AppTheme.System.name)
         return runCatching { AppTheme.valueOf(raw ?: AppTheme.System.name) }.getOrDefault(AppTheme.System)
@@ -373,6 +457,9 @@ class FeedStore(context: Context) {
         private const val KEY_THEME = "theme"
         private const val KEY_POSTS = "posts"
         private const val KEY_COMMENTS = "comments"
+        private const val KEY_MESSAGE_PRIVACY = "message_privacy"
+        private const val KEY_OUTGOING_MESSAGES = "outgoing_messages"
+        private const val KEY_SAVED_NOTES = "saved_notes"
         private const val KEY_AUTH_USER = "auth_user"
         private const val KEY_AUTH_HASH = "auth_hash"
         private const val KEY_LOGGED_IN = "logged_in"
