@@ -17,6 +17,7 @@ enum class MessagePrivacy { Friends, Everyone, Nobody }
 
 data class LocalMessage(val username: String, val text: String, val createdAt: Long = System.currentTimeMillis())
 data class SavedNote(val id: String, val text: String, val createdAt: Long = System.currentTimeMillis())
+data class SavedAccount(val username: String, val name: String, val bio: String, val avatarFile: String, val passwordHash: String)
 enum class Tab { Home, Friends, Create, Inbox, Profile }
 enum class ProfileSection { Posts, Private, Reposts, Saved, Liked }
 enum class InboxSection { Notifications, Messages }
@@ -75,6 +76,8 @@ class FeedStore(context: Context) {
         private set
     var isLoggedIn by mutableStateOf(prefs.getBoolean(KEY_LOGGED_IN, false))
         private set
+    var savedAccounts by mutableStateOf(readSavedAccounts())
+        private set
 
     val likesCount: Int get() = posts.count { it.liked }
 
@@ -98,18 +101,77 @@ class FeedStore(context: Context) {
         )
         persistProfile()
         isLoggedIn = true
+        rememberAccount(hash)
         return null
     }
 
     fun login(username: String, password: String): String? {
         val user = normalizeUsername(username)
-        val storedUser = prefs.getString(KEY_AUTH_USER, null)
-        val storedHash = prefs.getString(KEY_AUTH_HASH, null)
-        if (storedUser == null || storedHash == null) return "No account yet. Please register first."
-        if (user != storedUser || hashPassword(password) != storedHash) return "Wrong username or password"
-        prefs.edit().putBoolean(KEY_LOGGED_IN, true).apply()
+        val hash = hashPassword(password)
+        val account = savedAccounts.firstOrNull { it.username == user && it.passwordHash == hash }
+        val legacyUser = prefs.getString(KEY_AUTH_USER, null)
+        val legacyHash = prefs.getString(KEY_AUTH_HASH, null)
+        if (account == null && (user != legacyUser || hash != legacyHash)) {
+            return if (savedAccounts.isEmpty() && legacyUser == null) "No account yet. Please register first." else "Wrong username or password"
+        }
+        if (account != null) {
+            profile = Profile(account.name, account.username, account.bio, account.avatarFile, profile.privateAccount)
+        } else {
+            profile = profile.copy(username = user)
+            rememberAccount(hash)
+        }
+        prefs.edit().putString(KEY_AUTH_USER, user).putString(KEY_AUTH_HASH, hash).putBoolean(KEY_LOGGED_IN, true).apply()
+        persistProfile()
         isLoggedIn = true
         return null
+    }
+
+    fun switchAccount(username: String): Boolean {
+        val account = savedAccounts.firstOrNull { it.username == normalizeUsername(username) } ?: return false
+        profile = Profile(account.name, account.username, account.bio, account.avatarFile, profile.privateAccount)
+        prefs.edit()
+            .putString(KEY_AUTH_USER, account.username)
+            .putString(KEY_AUTH_HASH, account.passwordHash)
+            .putBoolean(KEY_LOGGED_IN, true)
+            .apply()
+        persistProfile()
+        isLoggedIn = true
+        return true
+    }
+
+    private fun rememberAccount(passwordHash: String) {
+        val current = SavedAccount(profile.username, profile.name, profile.bio, profile.avatarFile, passwordHash)
+        savedAccounts = (savedAccounts.filterNot { it.username == current.username } + current)
+        persistSavedAccounts()
+    }
+
+    private fun readSavedAccounts(): List<SavedAccount> {
+        val raw = prefs.getString(KEY_SAVED_ACCOUNTS, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.optJSONObject(i) ?: continue
+                    add(SavedAccount(
+                        item.optString("username"), item.optString("name"), item.optString("bio"),
+                        item.optString("avatarFile"), item.optString("passwordHash"),
+                    ))
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun persistSavedAccounts() {
+        val array = JSONArray()
+        savedAccounts.forEach { account ->
+            array.put(JSONObject()
+                .put("username", account.username)
+                .put("name", account.name)
+                .put("bio", account.bio)
+                .put("avatarFile", account.avatarFile)
+                .put("passwordHash", account.passwordHash))
+        }
+        prefs.edit().putString(KEY_SAVED_ACCOUNTS, array.toString()).apply()
     }
 
     fun logout() {
@@ -383,6 +445,15 @@ class FeedStore(context: Context) {
             .putString(KEY_AVATAR, profile.avatarFile)
             .putBoolean(KEY_PRIVATE, profile.privateAccount)
             .apply()
+        val existing = savedAccounts.firstOrNull { it.username == profile.username }
+        if (existing != null) {
+            savedAccounts = savedAccounts.map {
+                if (it.username == profile.username) it.copy(
+                    name = profile.name, bio = profile.bio, avatarFile = profile.avatarFile,
+                ) else it
+            }
+            persistSavedAccounts()
+        }
     }
 
     private fun readPosts(): List<LocalPost> {
@@ -494,6 +565,7 @@ class FeedStore(context: Context) {
         private const val KEY_AUTH_USER = "auth_user"
         private const val KEY_AUTH_HASH = "auth_hash"
         private const val KEY_LOGGED_IN = "logged_in"
+        private const val KEY_SAVED_ACCOUNTS = "saved_accounts"
     }
 }
 
