@@ -13,6 +13,11 @@ import java.io.File
 import java.security.MessageDigest
 
 enum class AppTheme { System, Light, Dark }
+enum class MessagePrivacy { Friends, Everyone, Nobody }
+
+data class LocalMessage(val username: String, val text: String, val createdAt: Long = System.currentTimeMillis())
+data class SavedNote(val id: String, val text: String, val createdAt: Long = System.currentTimeMillis())
+data class SavedAccount(val username: String, val name: String, val bio: String, val avatarFile: String, val passwordHash: String)
 enum class Tab { Home, Friends, Create, Inbox, Profile }
 enum class ProfileSection { Posts, Private, Reposts, Saved, Liked }
 enum class InboxSection { Notifications, Messages }
@@ -35,6 +40,17 @@ data class LocalPost(
     val privatePost: Boolean,
     val liked: Boolean,
     val bookmarked: Boolean,
+    val reposted: Boolean = false,
+)
+
+data class LocalComment(
+    val id: String,
+    val author: String,
+    val text: String,
+    val parentId: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val mediaFile: String? = null,
+    val liked: Boolean = false,
 )
 
 class FeedStore(context: Context) {
@@ -50,7 +66,19 @@ class FeedStore(context: Context) {
         private set
     var theme by mutableStateOf(readTheme())
         private set
+    var language by mutableStateOf(prefs.getString(KEY_LANGUAGE, "ru") ?: "ru")
+        private set
+    var commentsByPost by mutableStateOf(readComments())
+        private set
+    var messagePrivacy by mutableStateOf(readMessagePrivacy())
+        private set
+    var outgoingMessages by mutableStateOf(readOutgoingMessages())
+        private set
+    var savedNotes by mutableStateOf(readSavedNotes())
+        private set
     var isLoggedIn by mutableStateOf(prefs.getBoolean(KEY_LOGGED_IN, false))
+        private set
+    var savedAccounts by mutableStateOf(readSavedAccounts())
         private set
 
     val likesCount: Int get() = posts.count { it.liked }
@@ -75,18 +103,77 @@ class FeedStore(context: Context) {
         )
         persistProfile()
         isLoggedIn = true
+        rememberAccount(hash)
         return null
     }
 
     fun login(username: String, password: String): String? {
         val user = normalizeUsername(username)
-        val storedUser = prefs.getString(KEY_AUTH_USER, null)
-        val storedHash = prefs.getString(KEY_AUTH_HASH, null)
-        if (storedUser == null || storedHash == null) return "No account yet. Please register first."
-        if (user != storedUser || hashPassword(password) != storedHash) return "Wrong username or password"
-        prefs.edit().putBoolean(KEY_LOGGED_IN, true).apply()
+        val hash = hashPassword(password)
+        val account = savedAccounts.firstOrNull { it.username == user && it.passwordHash == hash }
+        val legacyUser = prefs.getString(KEY_AUTH_USER, null)
+        val legacyHash = prefs.getString(KEY_AUTH_HASH, null)
+        if (account == null && (user != legacyUser || hash != legacyHash)) {
+            return if (savedAccounts.isEmpty() && legacyUser == null) "No account yet. Please register first." else "Wrong username or password"
+        }
+        if (account != null) {
+            profile = Profile(account.name, account.username, account.bio, account.avatarFile, profile.privateAccount)
+        } else {
+            profile = profile.copy(username = user)
+            rememberAccount(hash)
+        }
+        prefs.edit().putString(KEY_AUTH_USER, user).putString(KEY_AUTH_HASH, hash).putBoolean(KEY_LOGGED_IN, true).apply()
+        persistProfile()
         isLoggedIn = true
         return null
+    }
+
+    fun switchAccount(username: String): Boolean {
+        val account = savedAccounts.firstOrNull { it.username == normalizeUsername(username) } ?: return false
+        profile = Profile(account.name, account.username, account.bio, account.avatarFile, profile.privateAccount)
+        prefs.edit()
+            .putString(KEY_AUTH_USER, account.username)
+            .putString(KEY_AUTH_HASH, account.passwordHash)
+            .putBoolean(KEY_LOGGED_IN, true)
+            .apply()
+        persistProfile()
+        isLoggedIn = true
+        return true
+    }
+
+    private fun rememberAccount(passwordHash: String) {
+        val current = SavedAccount(profile.username, profile.name, profile.bio, profile.avatarFile, passwordHash)
+        savedAccounts = (savedAccounts.filterNot { it.username == current.username } + current)
+        persistSavedAccounts()
+    }
+
+    private fun readSavedAccounts(): List<SavedAccount> {
+        val raw = prefs.getString(KEY_SAVED_ACCOUNTS, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.optJSONObject(i) ?: continue
+                    add(SavedAccount(
+                        item.optString("username"), item.optString("name"), item.optString("bio"),
+                        item.optString("avatarFile"), item.optString("passwordHash"),
+                    ))
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun persistSavedAccounts() {
+        val array = JSONArray()
+        savedAccounts.forEach { account ->
+            array.put(JSONObject()
+                .put("username", account.username)
+                .put("name", account.name)
+                .put("bio", account.bio)
+                .put("avatarFile", account.avatarFile)
+                .put("passwordHash", account.passwordHash))
+        }
+        prefs.edit().putString(KEY_SAVED_ACCOUNTS, array.toString()).apply()
     }
 
     fun logout() {
@@ -102,6 +189,39 @@ class FeedStore(context: Context) {
     fun chooseTheme(value: AppTheme) {
         theme = value
         prefs.edit().putString(KEY_THEME, value.name).apply()
+    }
+
+    fun chooseLanguage(value: String) {
+        if (value !in setOf("ru", "en", "zh", "ja", "kk")) return
+        language = value
+        prefs.edit().putString(KEY_LANGUAGE, value).apply()
+    }
+
+    fun updateMessagePrivacy(value: MessagePrivacy) {
+        messagePrivacy = value
+        prefs.edit().putString(KEY_MESSAGE_PRIVACY, value.name).apply()
+    }
+
+    fun sendLocalMessage(username: String, text: String): Boolean {
+        val user = normalizeUsername(username.removePrefix("@"))
+        val clean = text.trim().take(2000)
+        if (!isUsernameValid(user) || user == profile.username || clean.isBlank()) return false
+        if (messagePrivacy == MessagePrivacy.Nobody) return false
+        outgoingMessages = listOf(LocalMessage(user, clean)) + outgoingMessages
+        persistOutgoingMessages()
+        return true
+    }
+
+    fun saveNote(text: String) {
+        val clean = text.trim().take(2000)
+        if (clean.isBlank()) return
+        savedNotes = listOf(SavedNote(System.currentTimeMillis().toString(), clean)) + savedNotes
+        persistSavedNotes()
+    }
+
+    fun deleteSavedNote(id: String) {
+        savedNotes = savedNotes.filterNot { it.id == id }
+        persistSavedNotes()
     }
 
     fun setPrivateAccount(value: Boolean) {
@@ -208,6 +328,47 @@ class FeedStore(context: Context) {
     fun fileOf(post: LocalPost): File = File(postsDir, post.fileName)
     fun toggleLike(id: String) = updatePost(id) { it.copy(liked = !it.liked) }
     fun toggleBookmark(id: String) = updatePost(id) { it.copy(bookmarked = !it.bookmarked) }
+    fun toggleRepost(id: String) = updatePost(id) { it.copy(reposted = !it.reposted) }
+
+    fun addComment(postId: String, text: String, parentId: String? = null, mediaFile: String? = null) {
+        val clean = text.trim().take(500)
+        if ((clean.isBlank() && mediaFile.isNullOrBlank()) || posts.none { it.id == postId }) return
+        val current = commentsByPost[postId].orEmpty()
+        commentsByPost = commentsByPost + (postId to (current + LocalComment(
+            id = "${System.currentTimeMillis()}-${current.size}",
+            author = profile.username,
+            text = clean,
+            parentId = parentId,
+            mediaFile = mediaFile,
+        )))
+        persistComments()
+    }
+
+    fun toggleCommentLike(postId: String, commentId: String) {
+        val current = commentsByPost[postId].orEmpty()
+        commentsByPost = commentsByPost + (postId to current.map {
+            if (it.id == commentId) it.copy(liked = !it.liked) else it
+        })
+        persistComments()
+    }
+
+    suspend fun stageCommentMedia(uri: Uri): String? = withContext(Dispatchers.IO) {
+        try {
+            val ext = when (app.contentResolver.getType(uri)) {
+                "image/gif" -> "gif"
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                else -> "jpg"
+            }
+            val file = File(app.filesDir, "comment_${System.currentTimeMillis()}.$ext")
+            app.contentResolver.openInputStream(uri)?.use { input ->
+                file.outputStream().use { input.copyTo(it) }
+            } ?: return@withContext null
+            if (file.length() == 0L) { file.delete(); null } else file.absolutePath
+        } catch (_: Exception) { null }
+    }
+
+    fun commentsFor(postId: String): List<LocalComment> = commentsByPost[postId].orEmpty()
 
     fun delete(id: String) {
         val post = posts.find { it.id == id } ?: return
@@ -219,6 +380,53 @@ class FeedStore(context: Context) {
     private fun updatePost(id: String, block: (LocalPost) -> LocalPost) {
         posts = posts.map { if (it.id == id) block(it) else it }
         persistPosts()
+    }
+
+    private fun readMessagePrivacy(): MessagePrivacy =
+        runCatching {
+            MessagePrivacy.valueOf(prefs.getString(KEY_MESSAGE_PRIVACY, MessagePrivacy.Everyone.name) ?: MessagePrivacy.Everyone.name)
+        }.getOrDefault(MessagePrivacy.Everyone)
+
+    private fun readOutgoingMessages(): List<LocalMessage> {
+        val raw = prefs.getString(KEY_OUTGOING_MESSAGES, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.optJSONObject(i) ?: continue
+                    add(LocalMessage(item.optString("username"), item.optString("text"), item.optLong("createdAt")))
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun persistOutgoingMessages() {
+        val array = JSONArray()
+        outgoingMessages.forEach { item ->
+            array.put(JSONObject().put("username", item.username).put("text", item.text).put("createdAt", item.createdAt))
+        }
+        prefs.edit().putString(KEY_OUTGOING_MESSAGES, array.toString()).apply()
+    }
+
+    private fun readSavedNotes(): List<SavedNote> {
+        val raw = prefs.getString(KEY_SAVED_NOTES, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.optJSONObject(i) ?: continue
+                    add(SavedNote(item.optString("id"), item.optString("text"), item.optLong("createdAt")))
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun persistSavedNotes() {
+        val array = JSONArray()
+        savedNotes.forEach { item ->
+            array.put(JSONObject().put("id", item.id).put("text", item.text).put("createdAt", item.createdAt))
+        }
+        prefs.edit().putString(KEY_SAVED_NOTES, array.toString()).apply()
     }
 
     private fun readTheme(): AppTheme {
@@ -245,6 +453,15 @@ class FeedStore(context: Context) {
             .putString(KEY_AVATAR, profile.avatarFile)
             .putBoolean(KEY_PRIVATE, profile.privateAccount)
             .apply()
+        val existing = savedAccounts.firstOrNull { it.username == profile.username }
+        if (existing != null) {
+            savedAccounts = savedAccounts.map {
+                if (it.username == profile.username) it.copy(
+                    name = profile.name, bio = profile.bio, avatarFile = profile.avatarFile,
+                ) else it
+            }
+            persistSavedAccounts()
+        }
     }
 
     private fun readPosts(): List<LocalPost> {
@@ -263,11 +480,60 @@ class FeedStore(context: Context) {
                         privatePost = item.optBoolean("privatePost"),
                         liked = item.optBoolean("liked"),
                         bookmarked = item.optBoolean("bookmarked"),
+                        reposted = item.optBoolean("reposted"),
                     )
                     if (File(postsDir, post.fileName).exists()) add(post)
                 }
             }
         }.getOrDefault(emptyList())
+    }
+
+    private fun readComments(): Map<String, List<LocalComment>> {
+        val raw = prefs.getString(KEY_COMMENTS, null) ?: return emptyMap()
+        return runCatching {
+            val root = JSONObject(raw)
+            buildMap {
+                val keys = root.keys()
+                while (keys.hasNext()) {
+                    val postId = keys.next()
+                    val items = root.optJSONArray(postId) ?: JSONArray()
+                    val list = buildList {
+                        for (i in 0 until items.length()) {
+                            val item = items.optJSONObject(i) ?: continue
+                            add(LocalComment(
+                                id = item.optString("id"),
+                                author = item.optString("author"),
+                                text = item.optString("text"),
+                                parentId = item.optString("parentId").takeIf { it.isNotBlank() },
+                                createdAt = item.optLong("createdAt"),
+                                mediaFile = item.optString("mediaFile").takeIf { it.isNotBlank() },
+                                liked = item.optBoolean("liked"),
+                            ))
+                        }
+                    }
+                    put(postId, list)
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun persistComments() {
+        val root = JSONObject()
+        commentsByPost.forEach { (postId, list) ->
+            val items = JSONArray()
+            list.forEach { comment ->
+                items.put(JSONObject()
+                    .put("id", comment.id)
+                    .put("author", comment.author)
+                    .put("text", comment.text)
+                    .put("parentId", comment.parentId ?: "")
+                    .put("createdAt", comment.createdAt)
+                    .put("mediaFile", comment.mediaFile ?: "")
+                    .put("liked", comment.liked))
+            }
+            root.put(postId, items)
+        }
+        prefs.edit().putString(KEY_COMMENTS, root.toString()).apply()
     }
 
     private fun persistPosts() {
@@ -282,7 +548,8 @@ class FeedStore(context: Context) {
                     .put("createdAt", post.createdAt)
                     .put("privatePost", post.privatePost)
                     .put("liked", post.liked)
-                    .put("bookmarked", post.bookmarked),
+                    .put("bookmarked", post.bookmarked)
+                    .put("reposted", post.reposted),
             )
         }
         prefs.edit().putString(KEY_POSTS, array.toString()).apply()
@@ -298,10 +565,16 @@ class FeedStore(context: Context) {
         private const val KEY_AVATAR = "avatar"
         private const val KEY_PRIVATE = "private"
         private const val KEY_THEME = "theme"
+        private const val KEY_LANGUAGE = "language"
         private const val KEY_POSTS = "posts"
+        private const val KEY_COMMENTS = "comments"
+        private const val KEY_MESSAGE_PRIVACY = "message_privacy"
+        private const val KEY_OUTGOING_MESSAGES = "outgoing_messages"
+        private const val KEY_SAVED_NOTES = "saved_notes"
         private const val KEY_AUTH_USER = "auth_user"
         private const val KEY_AUTH_HASH = "auth_hash"
         private const val KEY_LOGGED_IN = "logged_in"
+        private const val KEY_SAVED_ACCOUNTS = "saved_accounts"
     }
 }
 

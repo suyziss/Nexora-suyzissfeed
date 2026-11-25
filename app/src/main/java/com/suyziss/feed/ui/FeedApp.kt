@@ -62,7 +62,7 @@ import com.suyziss.feed.data.Tab
 import kotlinx.coroutines.launch
 
 @Composable
-fun FeedApp() {
+fun FeedApp(initialVideoId: String? = null) {
     val context = LocalContext.current
     val store = remember { FeedStore(context) }
     val view = LocalView.current
@@ -71,7 +71,7 @@ fun FeedApp() {
 
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
     var overlay by rememberSaveable { mutableStateOf(Overlay.None) }
-    var selectedPostId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedPostId by rememberSaveable { mutableStateOf(initialVideoId) }
 
     val dark = when (store.theme) {
         AppTheme.Dark -> true
@@ -146,7 +146,7 @@ fun FeedApp() {
                             },
                             onError = { scope.launch { snackbar.showSnackbar(it) } },
                         )
-                        Tab.Inbox -> InboxScreen()
+                        Tab.Inbox -> InboxScreen(store)
                         Tab.Profile -> ProfileScreen(
                             store = store,
                             onOpenSettings = { overlay = Overlay.Settings },
