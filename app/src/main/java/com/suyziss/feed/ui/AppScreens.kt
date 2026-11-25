@@ -391,82 +391,264 @@ fun FriendsScreen() {
 
 @Composable
 fun InboxScreen(store: FeedStore) {
+    var selectedChat by remember { mutableStateOf<String?>(null) }
+    var activeTab by remember { mutableStateOf("Messages") }
+    var searchOpen by remember { mutableStateOf(false) }
+    var search by remember { mutableStateOf("") }
     var composeOpen by remember { mutableStateOf(false) }
-    var savedOpen by remember { mutableStateOf(false) }
     var username by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
+    var savedOpen by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Inbox", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            IconButton(onClick = { savedOpen = true }) { Icon(Icons.Outlined.BookmarkBorder, contentDescription = "Saved messages") }
-            IconButton(onClick = { composeOpen = true; error = null }) { Icon(Icons.Default.Add, contentDescription = "New message") }
-        }
-        if (store.outgoingMessages.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("No conversations yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = { savedOpen = true }) { Text("Open Saved Messages") }
+
+    val conversations = store.outgoingMessages
+        .groupBy { it.username }
+        .mapNotNull { (user, messages) -> messages.maxByOrNull { it.createdAt }?.let { user to it } }
+        .sortedByDescending { it.second.createdAt }
+        .filter { it.first.contains(search, ignoreCase = true) || it.second.text.contains(search, ignoreCase = true) }
+
+    if (selectedChat != null) {
+        val chatUser = selectedChat!!
+        val messages = store.outgoingMessages.filter { it.username == chatUser }.sortedBy { it.createdAt }
+        var draft by remember(chatUser) { mutableStateOf("") }
+        Column(Modifier.fillMaxSize().background(Color.Black).windowInsetsPadding(WindowInsets.statusBars)) {
+            Row(
+                Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = { selectedChat = null }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Box(
+                    Modifier.size(40.dp).clip(RoundedCornerShape(50)).background(Color(0xFF303036)),
+                    contentAlignment = Alignment.Center,
+                ) { Text(chatUser.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold) }
+                Text(chatUser, Modifier.weight(1f).padding(start = 12.dp), color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                IconButton(onClick = { savedOpen = true }) {
+                    Icon(Icons.Outlined.StarBorder, contentDescription = "Saved messages", tint = Color.White)
+                }
+                IconButton(onClick = { }) { Text("•••", color = Color.White, fontWeight = FontWeight.Bold) }
+            }
+            HorizontalDivider(color = Color(0xFF202024))
+            LazyColumn(
+                Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (messages.isEmpty()) item {
+                    Box(Modifier.fillMaxWidth().padding(top = 180.dp), contentAlignment = Alignment.Center) {
+                        Text("Начните переписку", color = Color.Gray)
+                    }
+                }
+                items(messages, key = { it.createdAt }) { item ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Box(
+                                Modifier.clip(RoundedCornerShape(22.dp, 22.dp, 5.dp, 22.dp))
+                                    .background(Color(0xFF9147F5))
+                                    .padding(horizontal = 16.dp, vertical = 11.dp)
+                                    .widthIn(max = 280.dp),
+                            ) { Text(item.text, color = Color.White) }
+                            Text("Сохранено · не доставлено", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.padding(top = 3.dp))
+                        }
+                    }
                 }
             }
-        } else {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp)) {
-                items(store.outgoingMessages, key = { "${it.username}-${it.createdAt}" }) { item ->
-                    Column(Modifier.fillMaxWidth().clickable { username = item.username; message = item.text; composeOpen = true }.padding(12.dp)) {
-                        Text("@${item.username}", fontWeight = FontWeight.Bold)
-                        Text(item.text, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Saved locally · not delivered", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+            Row(
+                Modifier.fillMaxWidth().navigationBarsPadding().imePadding()
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = { }) { Text("📷", fontSize = 21.sp) }
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { if (it.length <= 2000) draft = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("Написать…", color = Color.Gray) },
+                    maxLines = 4,
+                    shape = RoundedCornerShape(28.dp),
+                    colors = androidx.compose.material3.TextFieldDefaults.colors(
+                        focusedContainerColor = Color(0xFF202024),
+                        unfocusedContainerColor = Color(0xFF202024),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
+                )
+                IconButton(onClick = { }) { Text("🎙", fontSize = 21.sp) }
+                IconButton(onClick = { }) { Text("🖼", fontSize = 21.sp) }
+                IconButton(onClick = { }) { Text("☻", fontSize = 22.sp, color = Color.White) }
+                IconButton(
+                    enabled = draft.isNotBlank(),
+                    onClick = {
+                        if (store.sendLocalMessage(chatUser, draft)) draft = ""
+                    },
+                ) { Icon(Icons.Default.Add, contentDescription = "Send", tint = Color(0xFFB77BFF)) }
+            }
+            Text(
+                "Локальный режим: сообщение не отправлено другому пользователю",
+                color = Color.Gray,
+                fontSize = 10.sp,
+                modifier = Modifier.fillMaxWidth().background(Color.Black).padding(bottom = 5.dp),
+                textAlign = TextAlign.Center,
+            )
+        }
+        if (savedOpen) AlertDialog(
+            onDismissRequest = { savedOpen = false },
+            title = { Text("Saved Messages") },
+            text = {
+                Column {
+                    OutlinedTextField(value = note, onValueChange = { note = it.take(2000) }, label = { Text("Заметка себе") })
+                    TextButton(enabled = note.isNotBlank(), onClick = { store.saveNote(note); note = "" }) { Text("Сохранить") }
+                    LazyColumn(Modifier.heightIn(max = 260.dp)) {
+                        items(store.savedNotes, key = { it.id }) { saved ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(saved.text, Modifier.weight(1f))
+                                TextButton(onClick = { store.deleteSavedNote(saved.id) }) { Text("Удалить") }
+                            }
+                        }
                     }
-                    HorizontalDivider()
+                }
+            },
+            confirmButton = { TextButton(onClick = { savedOpen = false }) { Text("Готово") } },
+        )
+        return
+    }
+
+    Column(Modifier.fillMaxSize().background(Color.Black).windowInsetsPadding(WindowInsets.statusBars)) {
+        Row(
+            Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Default.Add, contentDescription = "Friends", tint = Color.White, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.width(16.dp))
+            Text("Входящие", Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Box(Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xFF202024)).padding(horizontal = 7.dp, vertical = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(Color(0xFF20D878)))
+                    Text("⌄", color = Color.LightGray, modifier = Modifier.padding(start = 5.dp))
+                }
+            }
+            IconButton(onClick = { searchOpen = !searchOpen }) { Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White) }
+            IconButton(onClick = { savedOpen = true }) { Text("•••", color = Color.White, fontWeight = FontWeight.Bold) }
+        }
+        if (searchOpen) {
+            OutlinedTextField(
+                value = search,
+                onValueChange = { search = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                placeholder = { Text("Поиск") },
+                singleLine = true,
+            )
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.size(76.dp).clip(RoundedCornerShape(50)).background(Color(0xFF303036)), contentAlignment = Alignment.Center) {
+                    Text("＋", color = Color(0xFF20C8E8), fontSize = 30.sp)
+                }
+                Text("Создать", color = Color.White, fontSize = 12.sp, modifier = Modifier.padding(top = 7.dp))
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("Messages", "Requests", "Unread").forEach { tab ->
+                Box(
+                    Modifier.clip(RoundedCornerShape(12.dp))
+                        .background(if (activeTab == tab) Color(0xFF073D48) else Color(0xFF202024))
+                        .clickable { activeTab = tab }
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                ) {
+                    Text(tab, color = if (activeTab == tab) Color(0xFF27C6D8) else Color.White, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+        when (activeTab) {
+            "Requests" -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Нет запросов", color = Color.Gray)
+            }
+            "Unread" -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Нет непрочитанных сообщений", color = Color.Gray)
+            }
+            else -> {
+                Column(Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable { activeTab = "Requests" }.padding(horizontal = 18.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(58.dp).clip(RoundedCornerShape(50)).background(Color(0xFF08AEEA)), contentAlignment = Alignment.Center) {
+                            Text("♟", color = Color.White, fontSize = 25.sp)
+                        }
+                        Column(Modifier.padding(start = 16.dp)) {
+                            Text("Новые подписчики", color = Color.White, fontSize = 16.sp)
+                            Text("Здесь будут ваши новые подписчики", color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().clickable { activeTab = "Unread" }.padding(horizontal = 18.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(58.dp).clip(RoundedCornerShape(50)).background(Color(0xFFE93678)), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Filled.Favorite, contentDescription = null, tint = Color.White, modifier = Modifier.size(30.dp))
+                        }
+                        Column(Modifier.padding(start = 16.dp)) {
+                            Text("Активность", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Лайки и другие уведомления", color = Color.Gray, maxLines = 1)
+                        }
+                    }
+                }
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 12.dp)) {
+                    items(conversations, key = { it.first }) { (user, latest) ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { selectedChat = user }.padding(horizontal = 18.dp, vertical = 13.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(Modifier.size(58.dp).clip(RoundedCornerShape(50)).background(Color(0xFF303036)), contentAlignment = Alignment.Center) {
+                                Text(user.take(1).uppercase(), color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                                Text(user, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                                Text(latest.text, color = Color.Gray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("Сохранено локально · не доставлено", color = Color(0xFFE05A6F), fontSize = 10.sp)
+                            }
+                        }
+                    }
+                    if (conversations.isEmpty()) item {
+                        Box(Modifier.fillMaxWidth().padding(top = 30.dp), contentAlignment = Alignment.Center) {
+                            Text("Нет диалогов", color = Color.Gray)
+                        }
+                    }
                 }
             }
         }
     }
     if (composeOpen) AlertDialog(
         onDismissRequest = { composeOpen = false },
-        title = { Text("New message") },
+        title = { Text("Новое сообщение") },
         text = {
             Column {
-                OutlinedTextField(value = username, onValueChange = { username = it.removePrefix("@").take(24) }, label = { Text("Username") }, prefix = { Text("@") }, singleLine = true)
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(value = message, onValueChange = { if (it.length <= 2000) message = it }, label = { Text("Message") }, minLines = 3, maxLines = 5)
-                if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                Text("No server connection yet. This is stored on this device only.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                OutlinedTextField(value = username, onValueChange = { username = it.removePrefix("@").take(24) }, label = { Text("Имя пользователя") }, prefix = { Text("@") }, singleLine = true)
+                OutlinedTextField(value = message, onValueChange = { message = it.take(2000) }, label = { Text("Сообщение") }, minLines = 2, maxLines = 4)
+                if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error)
             }
         },
         confirmButton = {
             TextButton(onClick = {
                 when {
-                    store.messagePrivacy == MessagePrivacy.Nobody -> error = "Messaging is disabled in privacy settings."
-                    store.sendLocalMessage(username, message) -> { composeOpen = false; username = ""; message = "" }
-                    else -> error = "Check the username and message."
-                }
-            }) { Text("Save draft") }
-        },
-        dismissButton = { TextButton(onClick = { composeOpen = false }) { Text("Cancel") } },
-    )
-    if (savedOpen) AlertDialog(
-        onDismissRequest = { savedOpen = false },
-        title = { Text("Saved Messages") },
-        text = {
-            Column {
-                OutlinedTextField(value = note, onValueChange = { if (it.length <= 2000) note = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Write a note to yourself") }, minLines = 2, maxLines = 4)
-                TextButton(enabled = note.isNotBlank(), onClick = { store.saveNote(note); note = "" }) { Text("Save note") }
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp)) {
-                    items(store.savedNotes, key = { it.id }) { saved ->
-                        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-                            Text(saved.text)
-                            TextButton(onClick = { store.deleteSavedNote(saved.id) }) { Text("Delete") }
-                        }
+                    store.messagePrivacy == MessagePrivacy.Nobody -> error = "Сообщения отключены в настройках приватности."
+                    store.sendLocalMessage(username, message) -> {
+                        selectedChat = username.removePrefix("@").trim().lowercase()
+                        composeOpen = false
+                        username = ""
+                        message = ""
                     }
+                    else -> error = "Проверьте имя пользователя и текст."
                 }
-            }
+            }) { Text("Создать") }
         },
-        confirmButton = { TextButton(onClick = { savedOpen = false }) { Text("Done") } },
+        dismissButton = { TextButton(onClick = { composeOpen = false }) { Text("Отмена") } },
     )
 }
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateScreen(
