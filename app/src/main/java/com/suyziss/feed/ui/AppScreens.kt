@@ -22,6 +22,7 @@ import androidx.compose.material3.TextButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -88,8 +89,9 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(store: FeedStore, onOpenPost: (String) -> Unit) {
-    val posts = store.posts.filter { !it.privatePost }
+    val posts = remember(store.posts) { store.posts.filter { !it.privatePost } }
     val listState = rememberLazyListState()
+    val snapFlingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
     val context = LocalContext.current
     var commentsFor by remember { mutableStateOf<String?>(null) }
 
@@ -110,8 +112,9 @@ fun HomeScreen(store: FeedStore, onOpenPost: (String) -> Unit) {
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 0.dp),
+                flingBehavior = snapFlingBehavior,
             ) {
-                itemsIndexed(posts, key = { _, post -> post.id }) { index, post ->
+                itemsIndexed(posts, key = { _, post -> post.id }, contentType = { _, post -> if (post.video) "video" else "image" }) { index, post ->
                     Box(
                         Modifier.fillMaxWidth().height(pageHeight).background(Color.Black),
                     ) {
