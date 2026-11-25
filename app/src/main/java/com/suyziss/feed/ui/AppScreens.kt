@@ -16,6 +16,11 @@ import androidx.compose.material3.TextButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -107,7 +112,30 @@ fun HomeScreen(store: FeedStore, onOpenPost: (String) -> Unit) {
                             path = store.fileOf(post).absolutePath,
                             isVideo = post.video,
                             play = post.video && index == listState.firstVisibleItemIndex,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInput(post.id) {
+                                    awaitEachGesture {
+                                        awaitFirstDown(requireUnconsumed = false)
+                                        val firstUp = waitForUpOrCancellation() ?: return@awaitEachGesture
+                                        val timeout = viewConfiguration.doubleTapTimeoutMillis.toLong()
+                                        val secondDown = withTimeoutOrNull(timeout) {
+                                            awaitFirstDown(requireUnconsumed = false)
+                                        }
+                                        if (secondDown == null) return@awaitEachGesture
+                                        val secondUp = waitForUpOrCancellation() ?: return@awaitEachGesture
+                                        val thirdDown = withTimeoutOrNull(timeout) {
+                                            awaitFirstDown(requireUnconsumed = false)
+                                        }
+                                        if (thirdDown == null) {
+                                            store.toggleLike(post.id)
+                                        } else {
+                                            val thirdUp = waitForUpOrCancellation()
+                                            if (thirdUp != null) store.toggleRepost(post.id)
+                                            else store.toggleLike(post.id)
+                                        }
+                                    }
+                                },
                             description = "Video by @${store.profile.username}",
                         )
 
@@ -207,6 +235,29 @@ private fun FeedAction(
 }
 
 @Composable
+private fun CommentReplies(
+    comments: List<LocalComment>,
+    parentId: String,
+    depth: Int,
+    onReply: (String) -> Unit,
+) {
+    comments.filter { it.parentId == parentId }.forEach { reply ->
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = (14 + depth * 12).dp, top = 3.dp, bottom = 5.dp),
+        ) {
+            Text("@${reply.author} · reply", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(reply.text)
+            TextButton(onClick = { onReply(reply.id) }) { Text("Reply") }
+            if (depth < 4) {
+                CommentReplies(comments, reply.id, depth + 1, onReply)
+            }
+        }
+    }
+}
+
+@Composable
 private fun CommentsDialog(
     store: FeedStore,
     postId: String,
@@ -226,14 +277,12 @@ private fun CommentsDialog(
                         Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                             Text("@${comment.author}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Text(comment.text)
-                            TextButton(onClick = { replyTo = comment.id }) { Text("Reply") }
-                            comments.filter { it.parentId == comment.id }.forEach { reply ->
-                                Column(Modifier.padding(start = 18.dp, bottom = 5.dp)) {
-                                    Text("@${reply.author} · reply", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
-                                    Text(reply.text)
-                                    TextButton(onClick = { replyTo = reply.id }) { Text("Reply") }
-                                }
-                            }
+                            CommentReplies(
+                                comments = comments,
+                                parentId = comment.id,
+                                depth = 0,
+                                onReply = { replyTo = it },
+                            )
                         }
                     }
                     if (roots.isEmpty()) {
