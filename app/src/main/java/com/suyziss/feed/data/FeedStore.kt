@@ -125,7 +125,7 @@ class FeedStore(context: Context) {
         prefs.edit().putString(KEY_THEME, value.name).apply()
     }
 
-    fun setMessagePrivacy(value: MessagePrivacy) {
+    fun updateMessagePrivacy(value: MessagePrivacy) {
         messagePrivacy = value
         prefs.edit().putString(KEY_MESSAGE_PRIVACY, value.name).apply()
     }
