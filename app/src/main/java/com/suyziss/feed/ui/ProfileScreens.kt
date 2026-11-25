@@ -350,6 +350,8 @@ fun EditProfileScreen(
     var newAvatar by remember { mutableStateOf<Uri?>(null) }
     var removeAvatar by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
 
     val picker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
@@ -357,99 +359,150 @@ fun EditProfileScreen(
         if (uri != null) {
             newAvatar = uri
             removeAvatar = false
+            saveError = null
         }
+    }
+
+    val normalizedUsername = normalizeUsername(username.removePrefix("@"))
+    val validName = name.trim().isNotEmpty()
+    val validUsername = isUsernameValid(normalizedUsername)
+    val avatarModel: Any? = when {
+        removeAvatar -> null
+        newAvatar != null -> newAvatar
+        store.profile.avatarFile.isNotBlank() && File(store.profile.avatarFile).exists() ->
+            File(store.profile.avatarFile)
+        else -> null
     }
 
     Column(
         Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(WindowInsets.statusBars)
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .padding(horizontal = 18.dp)
+            .padding(bottom = 28.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
-            Text("Edit profile", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.weight(1f))
+            Text(
+                "Edit profile",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+            )
             TextButton(
                 onClick = {
                     if (saving) return@TextButton
-                    if (!isUsernameValid(username)) return@TextButton
+                    if (!validName || !validUsername) {
+                        saveError = "Enter a name and a valid username."
+                        return@TextButton
+                    }
                     saving = true
+                    saveError = null
                     scope.launch {
                         val ok = store.updateProfile(
                             name = name,
-                            username = normalizeUsername(username),
+                            username = normalizedUsername,
                             bio = bio,
                             newAvatar = newAvatar,
                             removeAvatar = removeAvatar,
                         )
                         saving = false
-                        if (ok) onSaved()
+                        if (ok) onSaved() else saveError = "Could not save profile. Check the photo and try again."
                     }
                 },
-                enabled = !saving && isUsernameValid(username),
+                enabled = !saving && validName && validUsername,
             ) {
                 if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                else Text("Save")
+                else Text("Save", fontWeight = FontWeight.Bold)
             }
         }
 
-        Spacer(Modifier.height(16.dp))
-
-        Box(modifier = Modifier.align(Alignment.CenterHorizontally)) {
-            ProfileAvatar(
-                path = when {
-                    removeAvatar -> ""
-                    newAvatar != null -> newAvatar.toString()
-                    else -> store.profile.avatarFile
-                },
-                size = 96.dp,
-            )
-        }
-
-        Row(
-            Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.Center,
+        Column(
+            Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 22.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            TextButton(onClick = {
-                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            }) { Text("Change photo") }
-            if (store.profile.avatarFile.isNotBlank() || newAvatar != null) {
+            Box(
+                Modifier.size(112.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (avatarModel != null) {
+                    AsyncImage(
+                        model = avatarModel,
+                        contentDescription = "Profile photo preview",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.Person,
+                        contentDescription = null,
+                        modifier = Modifier.size(54.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.Center) {
                 TextButton(onClick = {
-                    newAvatar = null
-                    removeAvatar = true
-                }) { Text("Remove") }
+                    picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }) { Text("Change photo") }
+                if (avatarModel != null) {
+                    TextButton(onClick = {
+                        newAvatar = null
+                        removeAvatar = true
+                    }) { Text("Remove") }
+                }
             }
         }
 
+        Text("PROFILE INFORMATION", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(10.dp))
         OutlinedTextField(
             value = name,
-            onValueChange = { if (it.length <= 30) name = it },
+            onValueChange = { if (it.length <= 30) name = it; saveError = null },
             label = { Text("Name") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+            isError = !validName,
+            supportingText = { Text("${name.length}/30") },
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = username,
-            onValueChange = { if (it.length <= 24) username = it },
+            onValueChange = { if (it.length <= 25) username = it; saveError = null },
             label = { Text("Username") },
+            prefix = { Text("@") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            isError = username.isNotEmpty() && !isUsernameValid(username),
+            isError = username.isNotBlank() && !validUsername,
+            supportingText = {
+                Text(if (validUsername) "Your profile address: @${normalizedUsername}" else "Use 2–24 letters, numbers, dots or underscores.")
+            },
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = bio,
-            onValueChange = { if (it.length <= 50) bio = it },
-            label = { Text("Bio (max 50)") },
+            onValueChange = { if (it.length <= FeedStore.BIO_LIMIT) bio = it },
+            label = { Text("Bio") },
             modifier = Modifier.fillMaxWidth(),
-            maxLines = 3,
-            supportingText = { Text("${bio.length}/50") },
+            minLines = 3,
+            maxLines = 4,
+            supportingText = { Text("${bio.length}/${FeedStore.BIO_LIMIT}") },
         )
+        if (saveError != null) {
+            Text(
+                saveError!!,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 10.dp),
+                fontSize = 13.sp,
+            )
+        }
     }
 }
 
