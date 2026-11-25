@@ -801,110 +801,68 @@ fun CreateScreen(
 }
 
 @Composable
-fun SettingsScreen(
-    store: FeedStore,
-    onBack: () -> Unit,
-    onOpenTelegram: () -> Unit,
-) {
+fun SettingsScreen(store: FeedStore, onBack: () -> Unit, onOpenTelegram: () -> Unit) {
     var accountDialog by remember { mutableStateOf(false) }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 24.dp),
-    ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-            }
-            Text("Settings", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        }
-
-        SectionTitle("Account")
-        SettingsRow("Switch account", onClick = { accountDialog = true })
-        SettingsRow(
-            label = "Private account",
-            trailing = {
-                Switch(
-                    checked = store.profile.privateAccount,
-                    onCheckedChange = { store.setPrivateAccount(it) },
-                )
-            },
-        )
-
-        SectionTitle("Who can message you")
-        MessagePrivacy.entries.forEach { option ->
-            SettingsRow(
-                label = when (option) {
-                    MessagePrivacy.Friends -> "Friends (requests)"
-                    MessagePrivacy.Everyone -> "Everyone"
-                    MessagePrivacy.Nobody -> "Nobody"
-                },
-                trailing = {
-                    if (store.messagePrivacy == option) Icon(Icons.Default.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
-                },
-                onClick = { store.updateMessagePrivacy(option) },
-            )
-        }
-
-        SectionTitle("Appearance")
-        AppTheme.entries.forEach { theme ->
-            SettingsRow(
-                label = when (theme) {
-                    AppTheme.System -> "System"
-                    AppTheme.Light -> "Light"
-                    AppTheme.Dark -> "Dark"
-                },
-                trailing = {
-                    if (store.theme == theme) {
-                        Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    }
-                },
-                onClick = { store.chooseTheme(theme) },
-            )
-        }
-
-        SectionTitle("Support")
-        SettingsRow("Telegram @suyziss", onClick = onOpenTelegram)
-
-        SectionTitle("Session")
-        SettingsRow("Log out", onClick = { store.logout() })
-
-        Spacer(Modifier.height(32.dp))
-    }
-    if (accountDialog) AlertDialog(
-        onDismissRequest = { accountDialog = false },
-        title = { Text("Switch account") },
-        text = {
-            Column {
-                store.savedAccounts.forEach { account ->
-                    SettingsRow(
-                        label = "@${account.username}" + if (account.username == store.profile.username) " · Active" else "",
-                        onClick = {
-                            store.switchAccount(account.username)
-                            accountDialog = false
-                        },
-                    )
-                }
-                if (store.savedAccounts.isEmpty()) {
-                    Text("No saved accounts on this device.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { accountDialog = false; store.logout() }) { Text("Add account") }
-        },
-        dismissButton = { TextButton(onClick = { accountDialog = false }) { Text("Close") } },
+    var languageDialog by remember { mutableStateOf(false) }
+    var detailTitle by remember { mutableStateOf<String?>(null) }
+    var detailText by remember { mutableStateOf("") }
+    val panel = if (store.theme == AppTheme.Light) Color(0xFFF0F0F0) else Color(0xFF202020)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val translations = mapOf(
+        "ru" to mapOf("Settings and privacy" to "Настройки и конфиденциальность", "Activity" to "Активность", "Account" to "Аккаунт", "Visibility" to "Видимость", "Interactions" to "Взаимодействия", "Content and display" to "Контент и отображение", "Cache and mobile data" to "Кэш и мобильный трафик", "Support" to "Поддержка", "Account login" to "Вход в аккаунт", "Post management" to "Управление публикациями", "Preferred content" to "Предпочитаемый контент", "Notifications" to "Уведомления", "Screen time and wellbeing" to "Время и благополучие", "Family pairing" to "Привязка аккаунтов семьи", "Security and permissions" to "Безопасность и разрешения", "Share profile" to "Поделиться профилем", "Private account" to "Приватный аккаунт", "Blocked accounts" to "Заблокированные аккаунты", "Comments" to "Комментарии", "Mentions" to "Упоминания", "Direct messages" to "Личные сообщения", "Content reuse" to "Повторное использование контента", "Show profile when sharing links" to "Показывать профиль при отправке ссылок", "Downloads" to "Загрузки", "Following" to "Подписки", "Liked videos" to "Понравившиеся видео", "Viewers" to "Зрители", "Music" to "Музыка", "Inbox and messaging" to "Входящие и обмен сообщениями", "Activity center" to "Центр активности", "Audience controls" to "Ограничение аудитории", "Ads" to "Реклама", "Playback" to "Воспроизведение", "Display" to "Показать", "Language" to "Язык", "Accessibility" to "Универсальный доступ", "Contacts and location" to "Контакты и местоположение", "Offline videos" to "Видео офлайн", "Free up space" to "Освобождение места", "Data saver" to "Экономия трафика", "Help center" to "Центр поддержки", "Privacy center" to "Центр конфиденциальности", "Terms and policies" to "Условия и политики", "Switch account" to "Сменить аккаунт", "Log out" to "Выйти", "LIVE" to "ЭФИР"),
+        "zh" to mapOf("Settings and privacy" to "设置与隐私", "Activity" to "活动", "Account" to "账户", "Visibility" to "可见性", "Interactions" to "互动", "Content and display" to "内容与显示", "Cache and mobile data" to "缓存和移动数据", "Support" to "帮助与支持", "Language" to "语言", "Private account" to "私人账户", "Switch account" to "切换账户", "Log out" to "退出登录", "Direct messages" to "私信", "Comments" to "评论"),
+        "ja" to mapOf("Settings and privacy" to "設定とプライバシー", "Activity" to "アクティビティ", "Account" to "アカウント", "Visibility" to "公開範囲", "Interactions" to "インタラクション", "Content and display" to "コンテンツと表示", "Cache and mobile data" to "キャッシュとモバイルデータ", "Support" to "サポート", "Language" to "言語", "Private account" to "非公開アカウント", "Switch account" to "アカウントを切り替える", "Log out" to "ログアウト", "Direct messages" to "ダイレクトメッセージ", "Comments" to "コメント"),
+        "kk" to mapOf("Settings and privacy" to "Баптаулар және құпиялылық", "Activity" to "Белсенділік", "Account" to "Аккаунт", "Visibility" to "Көріну", "Interactions" to "Өзара әрекет", "Content and display" to "Контент және көрсету", "Cache and mobile data" to "Кэш және мобильді трафик", "Support" to "Қолдау", "Language" to "Тіл", "Private account" to "Жеке аккаунт", "Switch account" to "Аккаунтты ауыстыру", "Log out" to "Шығу", "Direct messages" to "Жеке хабарламалар", "Comments" to "Пікірлер")
     )
+    fun tr(value: String) = translations[store.language]?.get(value) ?: value
+    fun info(title: String) {
+        detailTitle = tr(title)
+        detailText = when (title) {
+            "Help center" -> "Поддержка: @suyziss"
+            "Privacy center" -> "Данные приложения пока хранятся локально на устройстве. Серверная синхронизация ещё не подключена."
+            "Post management" -> "Управляйте собственными публикациями в профиле."
+            "Direct messages" -> "Кто может отправлять вам сообщения, задаётся в разделе приватности."
+            else -> "Раздел интерфейса подготовлен. Дополнительные действия будут подключены вместе с соответствующими функциями."
+        }
+    }
+    @Composable
+    fun group(title: String, rows: List<Pair<String, () -> Unit>>) {
+        Text(tr(title), Modifier.padding(start = 22.dp, top = 22.dp, bottom = 10.dp), color = muted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp).clip(RoundedCornerShape(16.dp)).background(panel)) {
+            rows.forEach { (label, action) -> SettingsRow(tr(label), trailing = { Text("›", color = muted, fontSize = 26.sp) }, onClick = action) }
+        }
+    }
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).windowInsetsPadding(WindowInsets.statusBars).verticalScroll(rememberScrollState()).padding(bottom = 28.dp)) {
+        Row(Modifier.fillMaxWidth().height(64.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+            Text(tr("Settings and privacy"), fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        }
+        group("Activity", listOf("Post management" to { info("Post management") }, "Preferred content" to { info("Preferred content") }, "LIVE" to { info("LIVE") }, "Notifications" to { info("Notifications") }, "Screen time and wellbeing" to { info("Screen time and wellbeing") }, "Family pairing" to { info("Family pairing") }))
+        group("Account", listOf("Account" to { detailTitle = tr("Account"); detailText = "@\${store.profile.username}" }, "Security and permissions" to { info("Security and permissions") }, "Share profile" to { info("Share profile") }))
+        Text(tr("Visibility"), Modifier.padding(start = 22.dp, top = 22.dp, bottom = 10.dp), color = muted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp).clip(RoundedCornerShape(16.dp)).background(panel)) {
+            SettingsRow(tr("Private account"), trailing = { Switch(checked = store.profile.privateAccount, onCheckedChange = store::setPrivateAccount) }, onClick = { store.setPrivateAccount(!store.profile.privateAccount) })
+            SettingsRow(tr("Blocked accounts"), trailing = { Text("›", color = muted, fontSize = 26.sp) }, onClick = { info("Blocked accounts") })
+        }
+        group("Interactions", listOf("Comments" to { info("Comments") }, "Mentions" to { info("Mentions") }, "Direct messages" to { info("Direct messages") }, "Content reuse" to { info("Content reuse") }, "Show profile when sharing links" to { info("Show profile when sharing links") }, "Downloads" to { info("Downloads") }, "Following" to { info("Following") }, "Liked videos" to { info("Liked videos") }, "Viewers" to { info("Viewers") }))
+        group("Content and display", listOf("Music" to { info("Music") }, "Inbox and messaging" to { info("Inbox and messaging") }, "Activity center" to { info("Activity center") }, "Audience controls" to { info("Audience controls") }, "Ads" to { info("Ads") }, "Playback" to { info("Playback") }, "Display" to { info("Display") }, "Language" to { languageDialog = true }, "Accessibility" to { info("Accessibility") }, "Contacts and location" to { info("Contacts and location") }))
+        group("Cache and mobile data", listOf("Offline videos" to { info("Offline videos") }, "Free up space" to { info("Free up space") }, "Data saver" to { info("Data saver") }))
+        group("Support", listOf("Help center" to onOpenTelegram, "Privacy center" to { info("Privacy center") }, "Terms and policies" to { info("Terms and policies") }))
+        group("Account login", listOf("Switch account" to { accountDialog = true }, "Log out" to { store.logout() }))
+        Text("Suyziss Feed · \${store.language.uppercase()}", Modifier.fillMaxWidth().padding(top = 22.dp), color = muted, textAlign = TextAlign.Center, fontSize = 12.sp)
+    }
+    if (languageDialog) AlertDialog(onDismissRequest = { languageDialog = false }, title = { Text(tr("Language")) }, text = {
+        Column { listOf("ru" to "Русский", "en" to "English", "zh" to "中文", "ja" to "日本語", "kk" to "Қазақша").forEach { (code, name) ->
+            SettingsRow(name, trailing = { if (store.language == code) Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary) }, onClick = { store.chooseLanguage(code); languageDialog = false })
+        } }
+    }, confirmButton = { TextButton(onClick = { languageDialog = false }) { Text("OK") } })
+    if (accountDialog) AlertDialog(onDismissRequest = { accountDialog = false }, title = { Text(tr("Switch account")) }, text = {
+        Column { store.savedAccounts.forEach { account -> SettingsRow("@\${account.username}" + if (account.username == store.profile.username) " · Active" else "", onClick = { store.switchAccount(account.username); accountDialog = false }) }
+            if (store.savedAccounts.isEmpty()) Text("No saved accounts on this device.")
+        }
+    }, confirmButton = { TextButton(onClick = { accountDialog = false; store.logout() }) { Text("Add account") } }, dismissButton = { TextButton(onClick = { accountDialog = false }) { Text("Close") } })
+    if (detailTitle != null) AlertDialog(onDismissRequest = { detailTitle = null }, title = { Text(detailTitle!!) }, text = { Text(detailText) }, confirmButton = { TextButton(onClick = { detailTitle = null }) { Text("OK") } })
 }
-
 @Composable
 private fun SectionTitle(text: String) {
     Text(
