@@ -582,6 +582,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenTelegram: () -> Unit,
 ) {
+    var accountDialog by remember { mutableStateOf(false) }
     Column(
         Modifier
             .fillMaxSize()
@@ -603,6 +604,7 @@ fun SettingsScreen(
         }
 
         SectionTitle("Account")
+        SettingsRow("Switch account", onClick = { accountDialog = true })
         SettingsRow(
             label = "Private account",
             trailing = {
@@ -653,6 +655,30 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(32.dp))
     }
+    if (accountDialog) AlertDialog(
+        onDismissRequest = { accountDialog = false },
+        title = { Text("Switch account") },
+        text = {
+            Column {
+                store.savedAccounts.forEach { account ->
+                    SettingsRow(
+                        label = "@${account.username}" + if (account.username == store.profile.username) " · Active" else "",
+                        onClick = {
+                            store.switchAccount(account.username)
+                            accountDialog = false
+                        },
+                    )
+                }
+                if (store.savedAccounts.isEmpty()) {
+                    Text("No saved accounts on this device.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { accountDialog = false; store.logout() }) { Text("Add account") }
+        },
+        dismissButton = { TextButton(onClick = { accountDialog = false }) { Text("Close") } },
+    )
 }
 
 @Composable
