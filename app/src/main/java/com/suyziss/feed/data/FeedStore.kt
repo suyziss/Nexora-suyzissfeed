@@ -66,6 +66,8 @@ class FeedStore(context: Context) {
         private set
     var theme by mutableStateOf(readTheme())
         private set
+    var language by mutableStateOf(prefs.getString(KEY_LANGUAGE, "ru") ?: "ru")
+        private set
     var commentsByPost by mutableStateOf(readComments())
         private set
     var messagePrivacy by mutableStateOf(readMessagePrivacy())
@@ -187,6 +189,12 @@ class FeedStore(context: Context) {
     fun chooseTheme(value: AppTheme) {
         theme = value
         prefs.edit().putString(KEY_THEME, value.name).apply()
+    }
+
+    fun chooseLanguage(value: String) {
+        if (value !in setOf("ru", "en", "zh", "ja", "kk")) return
+        language = value
+        prefs.edit().putString(KEY_LANGUAGE, value).apply()
     }
 
     fun updateMessagePrivacy(value: MessagePrivacy) {
@@ -557,6 +565,7 @@ class FeedStore(context: Context) {
         private const val KEY_AVATAR = "avatar"
         private const val KEY_PRIVATE = "private"
         private const val KEY_THEME = "theme"
+        private const val KEY_LANGUAGE = "language"
         private const val KEY_POSTS = "posts"
         private const val KEY_COMMENTS = "comments"
         private const val KEY_MESSAGE_PRIVACY = "message_privacy"
