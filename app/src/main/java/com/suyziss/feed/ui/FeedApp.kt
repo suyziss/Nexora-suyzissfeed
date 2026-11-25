@@ -146,7 +146,7 @@ fun FeedApp(initialVideoId: String? = null) {
                             },
                             onError = { scope.launch { snackbar.showSnackbar(it) } },
                         )
-                        Tab.Inbox -> InboxScreen()
+                        Tab.Inbox -> InboxScreen(store)
                         Tab.Profile -> ProfileScreen(
                             store = store,
                             onOpenSettings = { overlay = Overlay.Settings },
