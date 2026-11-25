@@ -48,6 +48,8 @@ data class LocalComment(
     val text: String,
     val parentId: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
+    val mediaFile: String? = null,
+    val liked: Boolean = false,
 )
 
 class FeedStore(context: Context) {
@@ -258,17 +260,42 @@ class FeedStore(context: Context) {
     fun toggleBookmark(id: String) = updatePost(id) { it.copy(bookmarked = !it.bookmarked) }
     fun toggleRepost(id: String) = updatePost(id) { it.copy(reposted = !it.reposted) }
 
-    fun addComment(postId: String, text: String, parentId: String? = null) {
+    fun addComment(postId: String, text: String, parentId: String? = null, mediaFile: String? = null) {
         val clean = text.trim().take(500)
-        if (clean.isBlank() || posts.none { it.id == postId }) return
+        if ((clean.isBlank() && mediaFile.isNullOrBlank()) || posts.none { it.id == postId }) return
         val current = commentsByPost[postId].orEmpty()
         commentsByPost = commentsByPost + (postId to (current + LocalComment(
             id = "${System.currentTimeMillis()}-${current.size}",
             author = profile.username,
             text = clean,
             parentId = parentId,
+            mediaFile = mediaFile,
         )))
         persistComments()
+    }
+
+    fun toggleCommentLike(postId: String, commentId: String) {
+        val current = commentsByPost[postId].orEmpty()
+        commentsByPost = commentsByPost + (postId to current.map {
+            if (it.id == commentId) it.copy(liked = !it.liked) else it
+        })
+        persistComments()
+    }
+
+    suspend fun stageCommentMedia(uri: Uri): String? = withContext(Dispatchers.IO) {
+        try {
+            val ext = when (app.contentResolver.getType(uri)) {
+                "image/gif" -> "gif"
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                else -> "jpg"
+            }
+            val file = File(app.filesDir, "comment_${System.currentTimeMillis()}.$ext")
+            app.contentResolver.openInputStream(uri)?.use { input ->
+                file.outputStream().use { input.copyTo(it) }
+            } ?: return@withContext null
+            if (file.length() == 0L) { file.delete(); null } else file.absolutePath
+        } catch (_: Exception) { null }
     }
 
     fun commentsFor(postId: String): List<LocalComment> = commentsByPost[postId].orEmpty()
@@ -400,6 +427,8 @@ class FeedStore(context: Context) {
                                 text = item.optString("text"),
                                 parentId = item.optString("parentId").takeIf { it.isNotBlank() },
                                 createdAt = item.optLong("createdAt"),
+                                mediaFile = item.optString("mediaFile").takeIf { it.isNotBlank() },
+                                liked = item.optBoolean("liked"),
                             ))
                         }
                     }
@@ -419,7 +448,9 @@ class FeedStore(context: Context) {
                     .put("author", comment.author)
                     .put("text", comment.text)
                     .put("parentId", comment.parentId ?: "")
-                    .put("createdAt", comment.createdAt))
+                    .put("createdAt", comment.createdAt)
+                    .put("mediaFile", comment.mediaFile ?: "")
+                    .put("liked", comment.liked))
             }
             root.put(postId, items)
         }
