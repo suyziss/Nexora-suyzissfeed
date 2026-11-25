@@ -35,6 +35,15 @@ data class LocalPost(
     val privatePost: Boolean,
     val liked: Boolean,
     val bookmarked: Boolean,
+    val reposted: Boolean = false,
+)
+
+data class LocalComment(
+    val id: String,
+    val author: String,
+    val text: String,
+    val parentId: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
 )
 
 class FeedStore(context: Context) {
@@ -49,6 +58,8 @@ class FeedStore(context: Context) {
     var posts by mutableStateOf(readPosts())
         private set
     var theme by mutableStateOf(readTheme())
+        private set
+    var commentsByPost by mutableStateOf(readComments())
         private set
     var isLoggedIn by mutableStateOf(prefs.getBoolean(KEY_LOGGED_IN, false))
         private set
@@ -208,6 +219,22 @@ class FeedStore(context: Context) {
     fun fileOf(post: LocalPost): File = File(postsDir, post.fileName)
     fun toggleLike(id: String) = updatePost(id) { it.copy(liked = !it.liked) }
     fun toggleBookmark(id: String) = updatePost(id) { it.copy(bookmarked = !it.bookmarked) }
+    fun toggleRepost(id: String) = updatePost(id) { it.copy(reposted = !it.reposted) }
+
+    fun addComment(postId: String, text: String, parentId: String? = null) {
+        val clean = text.trim().take(500)
+        if (clean.isBlank() || posts.none { it.id == postId }) return
+        val current = commentsByPost[postId].orEmpty()
+        commentsByPost = commentsByPost + (postId to (current + LocalComment(
+            id = "${System.currentTimeMillis()}-${current.size}",
+            author = profile.username,
+            text = clean,
+            parentId = parentId,
+        )))
+        persistComments()
+    }
+
+    fun commentsFor(postId: String): List<LocalComment> = commentsByPost[postId].orEmpty()
 
     fun delete(id: String) {
         val post = posts.find { it.id == id } ?: return
@@ -263,11 +290,56 @@ class FeedStore(context: Context) {
                         privatePost = item.optBoolean("privatePost"),
                         liked = item.optBoolean("liked"),
                         bookmarked = item.optBoolean("bookmarked"),
+                        reposted = item.optBoolean("reposted"),
                     )
                     if (File(postsDir, post.fileName).exists()) add(post)
                 }
             }
         }.getOrDefault(emptyList())
+    }
+
+    private fun readComments(): Map<String, List<LocalComment>> {
+        val raw = prefs.getString(KEY_COMMENTS, null) ?: return emptyMap()
+        return runCatching {
+            val root = JSONObject(raw)
+            buildMap {
+                val keys = root.keys()
+                while (keys.hasNext()) {
+                    val postId = keys.next()
+                    val items = root.optJSONArray(postId) ?: JSONArray()
+                    val list = buildList {
+                        for (i in 0 until items.length()) {
+                            val item = items.optJSONObject(i) ?: continue
+                            add(LocalComment(
+                                id = item.optString("id"),
+                                author = item.optString("author"),
+                                text = item.optString("text"),
+                                parentId = item.optString("parentId").takeIf { it.isNotBlank() },
+                                createdAt = item.optLong("createdAt"),
+                            ))
+                        }
+                    }
+                    put(postId, list)
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun persistComments() {
+        val root = JSONObject()
+        commentsByPost.forEach { (postId, list) ->
+            val items = JSONArray()
+            list.forEach { comment ->
+                items.put(JSONObject()
+                    .put("id", comment.id)
+                    .put("author", comment.author)
+                    .put("text", comment.text)
+                    .put("parentId", comment.parentId ?: "")
+                    .put("createdAt", comment.createdAt))
+            }
+            root.put(postId, items)
+        }
+        prefs.edit().putString(KEY_COMMENTS, root.toString()).apply()
     }
 
     private fun persistPosts() {
@@ -282,7 +354,8 @@ class FeedStore(context: Context) {
                     .put("createdAt", post.createdAt)
                     .put("privatePost", post.privatePost)
                     .put("liked", post.liked)
-                    .put("bookmarked", post.bookmarked),
+                    .put("bookmarked", post.bookmarked)
+                    .put("reposted", post.reposted),
             )
         }
         prefs.edit().putString(KEY_POSTS, array.toString()).apply()
@@ -299,6 +372,7 @@ class FeedStore(context: Context) {
         private const val KEY_PRIVATE = "private"
         private const val KEY_THEME = "theme"
         private const val KEY_POSTS = "posts"
+        private const val KEY_COMMENTS = "comments"
         private const val KEY_AUTH_USER = "auth_user"
         private const val KEY_AUTH_HASH = "auth_hash"
         private const val KEY_LOGGED_IN = "logged_in"
