@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Repeat
@@ -19,6 +20,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.TextButton
+import coil.compose.AsyncImage
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -272,7 +274,16 @@ private fun CommentReplies(
 private fun CommentsDialog(store: FeedStore, postId: String, onDismiss: () -> Unit) {
     var draft by remember { mutableStateOf("") }
     var replyTo by remember { mutableStateOf<String?>(null) }
+    var mediaPath by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     val comments = store.commentsFor(postId)
+    val mediaPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) scope.launch {
+            mediaPath = store.stageCommentMedia(uri)
+        }
+    }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -294,8 +305,24 @@ private fun CommentsDialog(store: FeedStore, postId: String, onDismiss: () -> Un
                 items(roots, key = { it.id }) { comment ->
                     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                         Text("@${comment.author}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        Text(comment.text, modifier = Modifier.padding(top = 3.dp))
-                        TextButton(onClick = { replyTo = comment.id }) { Text("Reply") }
+                        if (comment.text.isNotBlank()) Text(comment.text, modifier = Modifier.padding(top = 3.dp))
+                        comment.mediaFile?.let { path ->
+                            AsyncImage(
+                                model = java.io.File(path),
+                                contentDescription = "Comment attachment",
+                                modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(top = 6.dp).clip(RoundedCornerShape(12.dp)),
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { replyTo = comment.id }) { Text("Reply") }
+                            IconButton(onClick = { store.toggleCommentLike(postId, comment.id) }) {
+                                Icon(
+                                    if (comment.liked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                    contentDescription = "Like comment",
+                                    tint = if (comment.liked) Color(0xFFFF365D) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                         CommentReplies(comments, comment.id, 0) { replyTo = it }
                     }
                 }
@@ -307,11 +334,21 @@ private fun CommentsDialog(store: FeedStore, postId: String, onDismiss: () -> Un
             }
             HorizontalDivider()
             if (replyTo != null) Text("Replying to a comment", Modifier.padding(start = 16.dp, top = 6.dp), color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+            if (mediaPath != null) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Attachment added", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+                    TextButton(onClick = { mediaPath = null }) { Text("Remove") }
+                }
+            }
             Row(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = {
+                    mediaPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }) { Icon(Icons.Default.Image, contentDescription = "Add photo or GIF") }
                 OutlinedTextField(value = draft, onValueChange = { if (it.length <= 500) draft = it }, modifier = Modifier.weight(1f), placeholder = { Text("Add a comment…") }, maxLines = 3)
-                IconButton(enabled = draft.isNotBlank(), onClick = {
-                    store.addComment(postId, draft, replyTo)
+                IconButton(enabled = draft.isNotBlank() || mediaPath != null, onClick = {
+                    store.addComment(postId, draft, replyTo, mediaPath)
                     draft = ""
+                    mediaPath = null
                     replyTo = null
                 }) { Icon(Icons.Default.Check, contentDescription = "Send comment", tint = MaterialTheme.colorScheme.primary) }
             }
