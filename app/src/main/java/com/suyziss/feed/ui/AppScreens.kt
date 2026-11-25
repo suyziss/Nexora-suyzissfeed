@@ -43,6 +43,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -532,7 +536,8 @@ fun InboxScreen(store: FeedStore) {
                 }
             }
             IconButton(onClick = { searchOpen = !searchOpen }) { Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White) }
-            IconButton(onClick = { savedOpen = true }) { Text("•••", color = Color.White, fontWeight = FontWeight.Bold) }
+            IconButton(onClick = { savedOpen = true }) { Icon(Icons.Outlined.BookmarkBorder, contentDescription = "Saved", tint = Color.White) }
+            IconButton(onClick = { composeOpen = true; error = null }) { Icon(Icons.Default.Add, contentDescription = "New message", tint = Color.White) }
         }
         if (searchOpen) {
             OutlinedTextField(
@@ -622,6 +627,25 @@ fun InboxScreen(store: FeedStore) {
             }
         }
     }
+    if (savedOpen && selectedChat == null) AlertDialog(
+        onDismissRequest = { savedOpen = false },
+        title = { Text("Saved Messages") },
+        text = {
+            Column {
+                OutlinedTextField(value = note, onValueChange = { note = it.take(2000) }, label = { Text("Заметка себе") })
+                TextButton(enabled = note.isNotBlank(), onClick = { store.saveNote(note); note = "" }) { Text("Сохранить") }
+                LazyColumn(Modifier.heightIn(max = 260.dp)) {
+                    items(store.savedNotes, key = { it.id }) { saved ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(saved.text, Modifier.weight(1f))
+                            TextButton(onClick = { store.deleteSavedNote(saved.id) }) { Text("Удалить") }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { savedOpen = false }) { Text("Готово") } },
+    )
     if (composeOpen) AlertDialog(
         onDismissRequest = { composeOpen = false },
         title = { Text("Новое сообщение") },
