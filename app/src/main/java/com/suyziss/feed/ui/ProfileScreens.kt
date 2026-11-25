@@ -213,7 +213,7 @@ fun ProfileScreen(
         val filtered = when (section) {
             ProfileSection.Posts -> store.posts.filter { !it.privatePost }
             ProfileSection.Private -> store.posts.filter { it.privatePost }
-            ProfileSection.Reposts -> emptyList()
+            ProfileSection.Reposts -> store.posts.filter { it.reposted }
             ProfileSection.Saved -> store.posts.filter { it.bookmarked }
             ProfileSection.Liked -> store.posts.filter { it.liked }
         }
