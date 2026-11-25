@@ -100,6 +100,9 @@ fun HomeScreen(store: FeedStore, onOpenPost: (String) -> Unit) {
     val snapFlingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
     val context = LocalContext.current
     var commentsFor by remember { mutableStateOf<String?>(null) }
+    var sharePost by remember { mutableStateOf<LocalPost?>(null) }
+    var shareUsername by remember { mutableStateOf("") }
+    var shareError by remember { mutableStateOf<String?>(null) }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
         val pageHeight = maxHeight
@@ -211,12 +214,9 @@ fun HomeScreen(store: FeedStore, onOpenPost: (String) -> Unit) {
                                 icon = Icons.Filled.Share,
                                 label = "Share",
                                 onClick = {
-                                    val link = "suyzissfeed://video/${post.id}"
-                                    val send = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, "Suyziss Feed video: $link")
-                                    }
-                                    context.startActivity(Intent.createChooser(send, "Share video"))
+                                    sharePost = post
+                                    shareUsername = ""
+                                    shareError = null
                                 },
                             )
                         }
@@ -231,6 +231,36 @@ fun HomeScreen(store: FeedStore, onOpenPost: (String) -> Unit) {
             store = store,
             postId = postId,
             onDismiss = { commentsFor = null },
+        )
+    }
+    sharePost?.let { post ->
+        AlertDialog(
+            onDismissRequest = { sharePost = null; shareError = null },
+            title = { Text("Отправить видео") },
+            text = {
+                Column {
+                    Text("Укажите @username друга. Видео будет добавлено в локальный список чатов.")
+                    OutlinedTextField(value = shareUsername, onValueChange = { shareUsername = it.removePrefix("@").take(24) }, label = { Text("@username") }, singleLine = true)
+                    if (shareError != null) Text(shareError!!, color = MaterialTheme.colorScheme.error)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val link = "suyzissfeed://video/${post.id}"
+                    if (store.sendLocalMessage(shareUsername, "Посмотри видео: $link")) {
+                        sharePost = null
+                        shareUsername = ""
+                        shareError = null
+                    } else shareError = "Не удалось сохранить. Проверьте имя и настройки личных сообщений."
+                }) { Text("Отправить") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    val link = "suyzissfeed://video/${post.id}"
+                    val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, "Suyziss Feed video: $link") }
+                    context.startActivity(Intent.createChooser(send, "Share video"))
+                }) { Text("Другие приложения") }
+            },
         )
     }
 }
@@ -838,7 +868,7 @@ fun SettingsScreen(store: FeedStore, onBack: () -> Unit, onOpenTelegram: () -> U
             Text(tr("Settings and privacy"), fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
         }
         group("Activity", listOf("Post management" to { info("Post management") }, "Preferred content" to { info("Preferred content") }, "LIVE" to { info("LIVE") }, "Notifications" to { info("Notifications") }, "Screen time and wellbeing" to { info("Screen time and wellbeing") }, "Family pairing" to { info("Family pairing") }))
-        group("Account", listOf("Account" to { detailTitle = tr("Account"); detailText = "@\${store.profile.username}" }, "Security and permissions" to { info("Security and permissions") }, "Share profile" to { info("Share profile") }))
+        group("Account", listOf("Account" to { detailTitle = tr("Account"); detailText = "@${store.profile.username}" }, "Security and permissions" to { info("Security and permissions") }, "Share profile" to { info("Share profile") }))
         Text(tr("Visibility"), Modifier.padding(start = 22.dp, top = 22.dp, bottom = 10.dp), color = muted, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp).clip(RoundedCornerShape(16.dp)).background(panel)) {
             SettingsRow(tr("Private account"), trailing = { Switch(checked = store.profile.privateAccount, onCheckedChange = store::setPrivateAccount) }, onClick = { store.setPrivateAccount(!store.profile.privateAccount) })
@@ -849,7 +879,7 @@ fun SettingsScreen(store: FeedStore, onBack: () -> Unit, onOpenTelegram: () -> U
         group("Cache and mobile data", listOf("Offline videos" to { info("Offline videos") }, "Free up space" to { info("Free up space") }, "Data saver" to { info("Data saver") }))
         group("Support", listOf("Help center" to onOpenTelegram, "Privacy center" to { info("Privacy center") }, "Terms and policies" to { info("Terms and policies") }))
         group("Account login", listOf("Switch account" to { accountDialog = true }, "Log out" to { store.logout() }))
-        Text("Suyziss Feed · \${store.language.uppercase()}", Modifier.fillMaxWidth().padding(top = 22.dp), color = muted, textAlign = TextAlign.Center, fontSize = 12.sp)
+        Text("Suyziss Feed · ${store.language.uppercase()}", Modifier.fillMaxWidth().padding(top = 22.dp), color = muted, textAlign = TextAlign.Center, fontSize = 12.sp)
     }
     if (languageDialog) AlertDialog(onDismissRequest = { languageDialog = false }, title = { Text(tr("Language")) }, text = {
         Column { listOf("ru" to "Русский", "en" to "English", "zh" to "中文", "ja" to "日本語", "kk" to "Қазақша").forEach { (code, name) ->
@@ -857,7 +887,7 @@ fun SettingsScreen(store: FeedStore, onBack: () -> Unit, onOpenTelegram: () -> U
         } }
     }, confirmButton = { TextButton(onClick = { languageDialog = false }) { Text("OK") } })
     if (accountDialog) AlertDialog(onDismissRequest = { accountDialog = false }, title = { Text(tr("Switch account")) }, text = {
-        Column { store.savedAccounts.forEach { account -> SettingsRow("@\${account.username}" + if (account.username == store.profile.username) " · Active" else "", onClick = { store.switchAccount(account.username); accountDialog = false }) }
+        Column { store.savedAccounts.forEach { account -> SettingsRow("@${account.username}" + if (account.username == store.profile.username) " · Active" else "", onClick = { store.switchAccount(account.username); accountDialog = false }) }
             if (store.savedAccounts.isEmpty()) Text("No saved accounts on this device.")
         }
     }, confirmButton = { TextButton(onClick = { accountDialog = false; store.logout() }) { Text("Add account") } }, dismissButton = { TextButton(onClick = { accountDialog = false }) { Text("Close") } })
