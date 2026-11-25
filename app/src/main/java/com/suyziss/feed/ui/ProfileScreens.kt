@@ -399,7 +399,7 @@ fun EditProfileScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        Box(Modifier = Modifier.align(Alignment.CenterHorizontally)) {
+        Box(modifier = Modifier.align(Alignment.CenterHorizontally)) {
             ProfileAvatar(
                 path = when {
                     removeAvatar -> ""
