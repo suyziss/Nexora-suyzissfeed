@@ -317,7 +317,7 @@ fun SettingsScreen(
 private fun SectionTitle(text: String) {
     Text(
         text.uppercase(),
-        modifier = Modifier.padding(horizontal = 16.dp, top = 16.dp, bottom = 4.dp),
+        modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 4.dp),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         fontSize = 12.sp,
         fontWeight = FontWeight.SemiBold,
