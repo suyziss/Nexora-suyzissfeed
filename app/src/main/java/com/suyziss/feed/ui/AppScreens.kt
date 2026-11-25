@@ -248,6 +248,8 @@ private fun FeedAction(
 
 @Composable
 private fun CommentReplies(
+    store: FeedStore,
+    postId: String,
     comments: List<LocalComment>,
     parentId: String,
     depth: Int,
@@ -260,10 +262,26 @@ private fun CommentReplies(
                 .padding(start = (14 + depth * 12).dp, top = 3.dp, bottom = 5.dp),
         ) {
             Text("@${reply.author} · reply", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            Text(reply.text)
-            TextButton(onClick = { onReply(reply.id) }) { Text("Reply") }
+            if (reply.text.isNotBlank()) Text(reply.text)
+            reply.mediaFile?.let { path ->
+                AsyncImage(
+                    model = java.io.File(path),
+                    contentDescription = "Comment attachment",
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp).clip(RoundedCornerShape(10.dp)),
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { onReply(reply.id) }) { Text("Reply") }
+                IconButton(onClick = { store.toggleCommentLike(postId, reply.id) }) {
+                    Icon(
+                        if (reply.liked) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                        contentDescription = "Like reply",
+                        tint = if (reply.liked) Color(0xFFFF365D) else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             if (depth < 4) {
-                CommentReplies(comments, reply.id, depth + 1, onReply)
+                CommentReplies(store, postId, comments, reply.id, depth + 1, onReply)
             }
         }
     }
@@ -323,7 +341,7 @@ private fun CommentsDialog(store: FeedStore, postId: String, onDismiss: () -> Un
                                 )
                             }
                         }
-                        CommentReplies(comments, comment.id, 0) { replyTo = it }
+                        CommentReplies(store, postId, comments, comment.id, 0) { replyTo = it }
                     }
                 }
                 if (roots.isEmpty()) item {
