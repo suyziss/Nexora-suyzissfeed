@@ -1,7 +1,6 @@
 package com.suyziss.feed.ui
 
 import android.content.Intent
-import androidx.compose.foundation.layout.fillParentMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -21,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -81,7 +81,8 @@ fun HomeScreen(store: FeedStore, onOpenPost: (String) -> Unit) {
     val context = LocalContext.current
     var commentsFor by remember { mutableStateOf<String?>(null) }
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+        val pageHeight = maxHeight
         if (posts.isEmpty()) {
             Column(
                 Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars),
@@ -100,7 +101,7 @@ fun HomeScreen(store: FeedStore, onOpenPost: (String) -> Unit) {
             ) {
                 itemsIndexed(posts, key = { _, post -> post.id }) { index, post ->
                     Box(
-                        Modifier.fillParentMaxSize().background(Color.Black),
+                        Modifier.fillMaxWidth().height(pageHeight).background(Color.Black),
                     ) {
                         MediaPreview(
                             path = store.fileOf(post).absolutePath,
