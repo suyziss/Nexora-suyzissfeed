@@ -587,7 +587,7 @@ fun SettingsScreen(
                 trailing = {
                     if (store.messagePrivacy == option) Icon(Icons.Default.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
                 },
-                onClick = { store.setMessagePrivacy(option) },
+                onClick = { store.updateMessagePrivacy(option) },
             )
         }
 
