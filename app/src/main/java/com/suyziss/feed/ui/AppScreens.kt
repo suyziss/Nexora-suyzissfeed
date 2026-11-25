@@ -2,6 +2,9 @@ package com.suyziss.feed.ui
 
 import android.content.Intent
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.filled.Favorite
@@ -12,6 +15,9 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.TextButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -77,6 +83,7 @@ import com.suyziss.feed.data.AppTheme
 import com.suyziss.feed.data.FeedStore
 import com.suyziss.feed.data.LocalPost
 import com.suyziss.feed.data.LocalComment
+import com.suyziss.feed.data.MessagePrivacy
 import kotlinx.coroutines.launch
 
 @Composable
@@ -257,67 +264,56 @@ private fun CommentReplies(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CommentsDialog(
-    store: FeedStore,
-    postId: String,
-    onDismiss: () -> Unit,
-) {
+private fun CommentsDialog(store: FeedStore, postId: String, onDismiss: () -> Unit) {
     var draft by remember { mutableStateOf("") }
     var replyTo by remember { mutableStateOf<String?>(null) }
     val comments = store.commentsFor(postId)
-    AlertDialog(
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text("Comments · ${comments.size}") },
-        text = {
-            Column {
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 340.dp)) {
-                    val roots = comments.filter { it.parentId == null }
-                    items(roots, key = { it.id }) { comment ->
-                        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-                            Text("@${comment.author}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text(comment.text)
-                            CommentReplies(
-                                comments = comments,
-                                parentId = comment.id,
-                                depth = 0,
-                                onReply = { replyTo = it },
-                            )
-                        }
-                    }
-                    if (roots.isEmpty()) {
-                        item { Text("No comments yet. Start the conversation.") }
-                    }
-                }
-                if (replyTo != null) {
-                    Text("Replying to a comment", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
-                }
-                OutlinedTextField(
-                    value = draft,
-                    onValueChange = { if (it.length <= 500) draft = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Add a comment…") },
-                    maxLines = 3,
-                )
+        sheetState = sheetState,
+        modifier = Modifier.fillMaxHeight(0.68f),
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(Modifier.height(10.dp))
+                Box(Modifier.size(36.dp, 4.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)))
+                Text("Comments · ${comments.size}", modifier = Modifier.padding(14.dp), fontWeight = FontWeight.Bold)
+                HorizontalDivider()
             }
         },
-        confirmButton = {
-            TextButton(
-                enabled = draft.isNotBlank(),
-                onClick = {
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+                val roots = comments.filter { it.parentId == null }
+                items(roots, key = { it.id }) { comment ->
+                    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                        Text("@${comment.author}", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(comment.text, modifier = Modifier.padding(top = 3.dp))
+                        TextButton(onClick = { replyTo = comment.id }) { Text("Reply") }
+                        CommentReplies(comments, comment.id, 0) { replyTo = it }
+                    }
+                }
+                if (roots.isEmpty()) item {
+                    Box(Modifier.fillMaxWidth().padding(top = 48.dp), contentAlignment = Alignment.Center) {
+                        Text("No comments yet. Be the first.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            HorizontalDivider()
+            if (replyTo != null) Text("Replying to a comment", Modifier.padding(start = 16.dp, top = 6.dp), color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+            Row(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(value = draft, onValueChange = { if (it.length <= 500) draft = it }, modifier = Modifier.weight(1f), placeholder = { Text("Add a comment…") }, maxLines = 3)
+                IconButton(enabled = draft.isNotBlank(), onClick = {
                     store.addComment(postId, draft, replyTo)
                     draft = ""
                     replyTo = null
-                },
-            ) { Text("Send") }
-        },
-        dismissButton = {
-            Row {
-                if (replyTo != null) TextButton(onClick = { replyTo = null }) { Text("Cancel reply") }
-                TextButton(onClick = onDismiss) { Text("Close") }
+                }) { Icon(Icons.Default.Check, contentDescription = "Send comment", tint = MaterialTheme.colorScheme.primary) }
             }
-        },
-    )
+        }
+    }
 }
 
 @Composable
@@ -336,18 +332,81 @@ fun FriendsScreen() {
 }
 
 @Composable
-fun InboxScreen() {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            "No notifications yet",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+fun InboxScreen(store: FeedStore) {
+    var composeOpen by remember { mutableStateOf(false) }
+    var savedOpen by remember { mutableStateOf(false) }
+    var username by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Inbox", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            IconButton(onClick = { savedOpen = true }) { Icon(Icons.Outlined.BookmarkBorder, contentDescription = "Saved messages") }
+            IconButton(onClick = { composeOpen = true; error = null }) { Icon(Icons.Default.Add, contentDescription = "New message") }
+        }
+        if (store.outgoingMessages.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("No conversations yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = { savedOpen = true }) { Text("Open Saved Messages") }
+                }
+            }
+        } else {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp)) {
+                items(store.outgoingMessages, key = { "${it.username}-${it.createdAt}" }) { item ->
+                    Column(Modifier.fillMaxWidth().clickable { username = item.username; message = item.text; composeOpen = true }.padding(12.dp)) {
+                        Text("@${item.username}", fontWeight = FontWeight.Bold)
+                        Text(item.text, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Saved locally · not delivered", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                    }
+                    HorizontalDivider()
+                }
+            }
+        }
     }
+    if (composeOpen) AlertDialog(
+        onDismissRequest = { composeOpen = false },
+        title = { Text("New message") },
+        text = {
+            Column {
+                OutlinedTextField(value = username, onValueChange = { username = it.removePrefix("@").take(24) }, label = { Text("Username") }, prefix = { Text("@") }, singleLine = true)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(value = message, onValueChange = { if (it.length <= 2000) message = it }, label = { Text("Message") }, minLines = 3, maxLines = 5)
+                if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                Text("No server connection yet. This is stored on this device only.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                when {
+                    store.messagePrivacy == MessagePrivacy.Nobody -> error = "Messaging is disabled in privacy settings."
+                    store.sendLocalMessage(username, message) -> { composeOpen = false; username = ""; message = "" }
+                    else -> error = "Check the username and message."
+                }
+            }) { Text("Save draft") }
+        },
+        dismissButton = { TextButton(onClick = { composeOpen = false }) { Text("Cancel") } },
+    )
+    if (savedOpen) AlertDialog(
+        onDismissRequest = { savedOpen = false },
+        title = { Text("Saved Messages") },
+        text = {
+            Column {
+                OutlinedTextField(value = note, onValueChange = { if (it.length <= 2000) note = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Write a note to yourself") }, minLines = 2, maxLines = 4)
+                TextButton(enabled = note.isNotBlank(), onClick = { store.saveNote(note); note = "" }) { Text("Save note") }
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp)) {
+                    items(store.savedNotes, key = { it.id }) { saved ->
+                        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                            Text(saved.text)
+                            TextButton(onClick = { store.deleteSavedNote(saved.id) }) { Text("Delete") }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { savedOpen = false }) { Text("Done") } },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -513,6 +572,21 @@ fun SettingsScreen(
                 )
             },
         )
+
+        SectionTitle("Who can message you")
+        MessagePrivacy.entries.forEach { option ->
+            SettingsRow(
+                label = when (option) {
+                    MessagePrivacy.Friends -> "Friends (requests)"
+                    MessagePrivacy.Everyone -> "Everyone"
+                    MessagePrivacy.Nobody -> "Nobody"
+                },
+                trailing = {
+                    if (store.messagePrivacy == option) Icon(Icons.Default.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
+                },
+                onClick = { store.setMessagePrivacy(option) },
+            )
+        }
 
         SectionTitle("Appearance")
         AppTheme.entries.forEach { theme ->
